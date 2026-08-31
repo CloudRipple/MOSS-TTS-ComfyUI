@@ -1,0 +1,9 @@
+# Development-only files excluded from the ComfyUI Registry package.
+.git/
+.github/
+tests/
+scripts/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.flac
