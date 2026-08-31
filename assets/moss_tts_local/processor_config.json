@@ -1,0 +1,7 @@
+{
+  "processor_class": "MossTTSLocalProcessor",
+  "audio_tokenizer_name_or_path": "OpenMOSS-Team/MOSS-Audio-Tokenizer-v2",
+  "auto_map": {
+    "AutoProcessor": "processing_moss_tts.MossTTSLocalProcessor"
+  }
+}

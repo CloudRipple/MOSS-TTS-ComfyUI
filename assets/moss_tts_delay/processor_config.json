@@ -1,0 +1,6 @@
+{
+    "processor_class": "MossTTSDelayProcessor",
+    "auto_map": {
+        "AutoProcessor": "processing_moss_tts.MossTTSDelayProcessor"
+    }
+}

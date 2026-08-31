@@ -1,0 +1,6 @@
+# Only lightweight extras that a stock ComfyUI environment may be missing.
+# torch / torchaudio / transformers intentionally NOT listed: they come from ComfyUI.
+huggingface-hub
+safetensors
+numpy
+tqdm
