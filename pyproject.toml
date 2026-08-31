@@ -1,5 +1,5 @@
 [project]
-name = "moss-tts-v15"
+name = "moss-tts"
 description = "ComfyUI custom nodes for OpenMOSS MOSS-TTS v1.5 — both variants: Local-Transformer (Qwen3-4B backbone, 48 kHz stereo) and Delay (8B, 24 kHz). Reference-free TTS, zero-shot voice cloning, continuation, duration control, 31 languages."
 version = "0.1.0"
 license = { file = "LICENSE" }
@@ -18,5 +18,5 @@ Model-8B = "https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5"
 
 [tool.comfy]
 PublisherId = "cloudripple"  # registered at https://registry.comfy.org
-DisplayName = "MOSS-TTS v1.5"
+DisplayName = "MOSS-TTS"
 Icon = ""
