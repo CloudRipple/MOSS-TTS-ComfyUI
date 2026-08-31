@@ -1,69 +1,56 @@
-# MOSS-TTS v1.5 for ComfyUI
+# MOSS-TTS v1.5 ComfyUI 节点包
 
-[中文](README_zh.md)
+[English](README_en.md)
 
-ComfyUI custom nodes for [OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5)
-and [OpenMOSS-Team/MOSS-TTS-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5):
+支持 MOSS-TTS v1.5 两个变体的 ComfyUI 自定义节点：
 
-- **Local-Transformer** — Qwen3-**4B**-class backbone + nano-GPT2 local transformer, MOSS-Audio-Tokenizer-v2, **48 kHz stereo**, n_vq=12. (Note: the "1.7B" floating around in other packs' READMEs is wrong; the backbone config is Qwen3-4B-shaped, checkpoint ≈ 9.1 GB in bf16.)
-- **Delay** — 8B delay-pattern model, MOSS-Audio-Tokenizer (v1), **24 kHz**, n_vq=32.
+- **Local-Transformer**：Qwen3-**4B** 级主干 + nano-GPT2 局部变换器，配 MOSS-Audio-Tokenizer-v2，**48 kHz 立体声**，n_vq=12。（其他扩展 README 里流传的 "1.7B" 不准确——主干是 Qwen3-4B 形状，bf16 权重约 9.1GB。）
+- **Delay**：8B delay-pattern 模型，配 MOSS-Audio-Tokenizer（v1），**24 kHz**，n_vq=32。
 
-Both are loaded through the same nodes.
+两个变体走同一组节点，Load Model 节点里下拉切换。
 
-## Highlights
+## 特性
 
-- Reference-free TTS, zero-shot voice cloning, continuation, hard duration control (`target_tokens`, 12.5 frames/s), 31 languages with explicit language tags, `[pause 3.2s]` markers.
-- No `trust_remote_code`: the model code is vendored under `assets/` (with minimal, clearly marked compatibility patches), so the pack does not depend on whatever happens to be in your HF module cache.
-- Works on both transformers 4.x and 5.x for both variants (patched vendored code + feature detection); E2E-validated on 5.16, native-path-verified on 4.57.
-- Deep ComfyUI memory-management integration: weights register through `ModelPatcher` / `ModelPatcherDynamic` (AIMDO DynamicVRAM aware) and participate in normal unloads; every integration point is feature-detected and degrades gracefully on older ComfyUI.
-- Weights are resolved, in order: `$MOSS_TTS_MODELS_DIR/<Repo-Name>` → `ComfyUI/models/mosstts/<Repo-Name>` → the HF hub cache (respecting `HF_HOME`) → auto-download (when `download_if_missing`).
+- 无参考 TTS、零样本声音克隆、音频续写、硬时长控制（`target_tokens`，12.5 帧/秒）、31 种语言显式标签、`[pause 3.2s]` 停顿标记。
+- **不用 `trust_remote_code`**：模型代码 vendored 在 `assets/`（最小且带标记的兼容补丁），不依赖 HF 模块缓存里那一版。
+- transformers 4.x / 5.x 都能跑（补丁 + 特性探测）；双机型 E2E 验收覆盖 5.16 与 4.57。
+- 深度接入 ComfyUI 内存管理：权重经 `ModelPatcher` / `ModelPatcherDynamic`（感知 AIMDO DynamicVRAM）注册，可被正常卸载；每个集成点都做了降级保护。
+- 权重查找顺序：`$MOSS_TTS_MODELS_DIR/<仓库名>` → `ComfyUI/models/mosstts/<仓库名>` → HF hub cache（遵循 `HF_HOME`）→（`download_if_missing` 开启时）自动下载。
 
-## Install
+## 安装
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/YOUR_GITHUB_ORG/ComfyUI-MOSS-TTS-v15.git MOSS-TTS-V15-ComfyUI
-# deps (only missing ones get installed):
-python install.py   # or: pip install -r requirements.txt
+git clone https://github.com/CloudRipple/MOSS-TTS-ComfyUI.git
+python install.py   # 只装缺失的轻量依赖
 ```
 
-Restart ComfyUI. First use resolves weights from your local caches; if absent
-and `download_if_missing` is on, they download from Hugging Face
-(~9.1 GB + ~8 GB codec for Local; ~17 GB + ~6.7 GB codec for Delay).
+重启 ComfyUI。首次使用会先从本地缓存解析权重；找不到且允许下载时才从 HF 下载。
 
-## Nodes (category `MOSS-TTS v1.5`)
+## 节点（分类 `MOSS-TTS v1.5`）
 
-| Node | Purpose |
+| 节点 | 作用 |
 |---|---|
-| MOSS-TTS v1.5 Load Model | Load variant (`local` / `delay`), dtype (auto/bf16/fp16/fp32), attention (auto/sdpa/flash_attention_2/eager), download toggle. |
-| MOSS-TTS v1.5 Generate Speech | Reference-free TTS. |
-| MOSS-TTS v1.5 Voice Clone | Clone from a reference `AUDIO` input. |
-| MOSS-TTS v1.5 Continue Speech | Prefix continuation: extend a clip in the same voice. Outputs both the new segment and the stitched full audio (+ exact frame counts for chaining). |
-| MOSS-TTS v1.5 Estimate Tokens | Text → `target_tokens` estimate for duration control. |
+| Load Model | 选变体（local / delay）、dtype、attention、是否允许下载。 |
+| Generate Speech | 无参考 TTS，语言 + instruction 引导声音。 |
+| Voice Clone | 参考音频声音克隆。 |
+| Continue Speech | 前缀续写；输出新段+拼好的完整音频+帧数（便于链式衔接）。 |
+| Estimate Tokens | 文本 → `target_tokens` 估算。 |
 
-All generator nodes output `tokens_generated` (audio frames; seconds = frames / 12.5) so continuation chains can hand exact prefix lengths forward.
+生成节点都输出 `tokens_generated`（音频帧数，秒数 = 帧 / 12.5），供续写链精确传递前缀长度。
 
-## VRAM
+## 显存
 
-- Local (4B): ~12 GB bf16 active.
-- Delay (8B): ~22 GB bf16 active.
+- Local（4B）：bf16 约 12 GB。
+- Delay（8B）：bf16 约 22 GB。
 
-Keep voice-clone references short (5–15 s); prefix/PKV memory grows linearly with prefix duration.
+克隆参考音频建议 5–15 秒；前缀越长，KV cache 越大。
 
-## Troubleshooting
+## 同步上游代码
 
-- **Nothing happens / model can't be found**: the loader prints the exact search paths. Set `$MOSS_TTS_MODELS_DIR` to a directory containing `MOSS-TTS-Local-Transformer-v1.5/` etc., or rely on `HF_HOME` pointing at your HF cache.
-- **flash-attn errors**: set attention to `auto` or `sdpa`. flash-attn is optional; sdpa quality is identical.
-- **VRAM pressure alongside big ComfyUI workflows**: the pack registers with ComfyUI's memory management, so `Free memory` / unloading works as usual.
-
-## Updating the vendored model code
-
-`assets/` mirrors the remote code of the four HF repos. Patches are marked
-`# MOSS-TTS-V15-ComfyUI patch:` and limited to: transformers 4.x/5.x import
-compat, an optional progress callback for the delay variant, and Path-accepting
-`encode_audios_from_path`. To sync with upstream, recopy the four repos' code
-files and re-apply the grep-able patch set.
+`assets/` 镜像了四个 HF 仓库的 remote code。所有补丁都带
+`# MOSS-TTS-V15-ComfyUI patch:` 注释；同步上游时重新拷贝那四个仓库的代码文件并重新套用这组补丁即可。
 
 ## License
 
-MIT (this pack). Model weights and upstream model code are Apache-2.0 by OpenMOSS-Team.
+MIT（本包）。模型权重与上游代码为 OpenMOSS-Team 的 Apache-2.0。
