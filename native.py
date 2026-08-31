@@ -252,6 +252,7 @@ def _materialize_non_persistent_buffers(model: nn.Module, device: torch.device) 
             continue
         cls_name = type(module).__name__
         if "RotaryEmbedding" in cls_name and hasattr(module, "compute_default_rope_parameters"):
+            # transformers 5.x: static recompute helper on the module.
             with torch.no_grad():
                 inv_freq, attention_scaling = module.compute_default_rope_parameters(
                     module.config, device
@@ -261,6 +262,24 @@ def _materialize_non_persistent_buffers(model: nn.Module, device: torch.device) 
                     module.register_buffer(name, inv_freq.to(dtype=buf.dtype), persistent=False)
                 elif name == "original_inv_freq":
                     module.register_buffer(name, inv_freq.clone().to(dtype=buf.dtype), persistent=False)
+            if hasattr(module, "attention_scaling"):
+                module.attention_scaling = attention_scaling
+            continue
+        if "RotaryEmbedding" in cls_name and callable(getattr(module, "rope_init_fn", None)):
+            # transformers 4.x: Qwen3RotaryEmbedding keeps a `rope_init_fn`
+            # attribute (ROPE_INIT_FUNCTIONS[rope_type]) instead of the 5.x
+            # staticmethod. Without this branch, inv_freq was zero-filled and
+            # the model ran position-blind (degraded/early-stopped audio).
+            with torch.no_grad():
+                inv_freq, attention_scaling = module.rope_init_fn(module.config, device)
+            for name, buf in metas:
+                if name == "inv_freq":
+                    module.register_buffer(name, inv_freq.to(dtype=buf.dtype), persistent=False)
+                elif name == "original_inv_freq":
+                    module.register_buffer(name, inv_freq.clone().to(dtype=buf.dtype), persistent=False)
+            # 4.x also aliases `original_inv_freq = inv_freq` as a plain attr.
+            if hasattr(module, "original_inv_freq"):
+                module.original_inv_freq = module.inv_freq
             if hasattr(module, "attention_scaling"):
                 module.attention_scaling = attention_scaling
             continue
