@@ -183,3 +183,32 @@ def test_comfy_castable_modules_forward_without_comfy():
         ref = mod.forward
         out = mod.forward(x) if isinstance(mod, torch.nn.ConvTranspose1d) else ref(x)
         assert out is not None
+
+
+def test_rotary_materialization_4x_rope_init_fn():
+    """tf4.x-style rotary (rope_init_fn attr, no compute_default_rope_parameters)
+    must get a recomputed inv_freq, not the historical zero-fill that left the
+    model position-blind on transformers 4.x."""
+    import torch.nn as nn
+
+    import mosstts_v15.native as native
+
+    class Fake4xRotaryEmbedding(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.config = object()
+            self.attention_scaling = 0.0
+            self.register_buffer("inv_freq", torch.empty(4, device="meta"), persistent=False)
+
+            def rope_init_fn(config, device):
+                return torch.tensor([1.0, 0.1, 0.01, 0.001], device=device), 1.0
+
+            self.rope_init_fn = rope_init_fn
+
+    mod = Fake4xRotaryEmbedding()
+    wrapper = nn.Module()
+    wrapper.rot = mod
+    native._materialize_non_persistent_buffers(wrapper, torch.device("cpu"))
+    assert mod.inv_freq.device.type == "cpu"
+    assert torch.all(mod.inv_freq != 0)
+    assert mod.attention_scaling == 1.0

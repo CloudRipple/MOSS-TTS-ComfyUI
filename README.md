@@ -14,7 +14,7 @@ Both are loaded through the same nodes.
 
 - Reference-free TTS, zero-shot voice cloning, continuation, hard duration control (`target_tokens`, 12.5 frames/s), 31 languages with explicit language tags, `[pause 3.2s]` markers.
 - No `trust_remote_code`: the model code is vendored under `assets/` (with minimal, clearly marked compatibility patches), so the pack does not depend on whatever happens to be in your HF module cache.
-- Works on both transformers 4.x and 5.x for the Local variant; the Delay (8B) variant requires transformers >= 5.0 (patched vendored code + feature detection).
+- Works on both transformers 4.x and 5.x for both variants (patched vendored code + feature detection); E2E-validated on 5.16, native-path-verified on 4.57.
 - Deep ComfyUI memory-management integration: weights register through `ModelPatcher` / `ModelPatcherDynamic` (AIMDO DynamicVRAM aware) and participate in normal unloads; every integration point is feature-detected and degrades gracefully on older ComfyUI.
 - Weights are resolved, in order: `$MOSS_TTS_MODELS_DIR/<Repo-Name>` → `ComfyUI/models/mosstts/<Repo-Name>` → the HF hub cache (respecting `HF_HOME`) → auto-download (when `download_if_missing`).
 
