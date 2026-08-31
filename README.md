@@ -19,6 +19,10 @@
 
 ## 安装
 
+**ComfyUI-Manager**：打开 Manager → Custom Nodes Manager → 搜索 `moss-tts` → Install。Manager 会自动拉包并安装依赖（`install.py`），装完重启 ComfyUI 即可。后续版本更新同样在 Manager 里完成。
+
+**Git clone**：
+
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/CloudRipple/MOSS-TTS-ComfyUI.git

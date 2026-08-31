@@ -20,6 +20,10 @@ Both are loaded through the same nodes.
 
 ## Install
 
+**ComfyUI-Manager**: Manager → Custom Nodes Manager → search `moss-tts` → Install. Manager fetches the package and installs dependencies (`install.py`) automatically; restart ComfyUI afterwards.
+
+**Git clone**:
+
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/CloudRipple/MOSS-TTS-ComfyUI.git
