@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/YOUR_GITHUB_ORG/ComfyUI-MOSS-TTS-v15"
+Repository = "https://github.com/CloudRipple/MOSS-TTS-ComfyUI"
 Model = "https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"
 Model-8B = "https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5"
 
