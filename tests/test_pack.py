@@ -164,6 +164,48 @@ def test_models_dir_env_override(tmp_path, monkeypatch):
     assert loader._resolve_dir_for(spec.repo_id, False) == d
 
 
+def test_load_installs_cache_invalidation_unload_hook(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from mosstts_v15 import loader
+    from mosstts_v15.nodes import MossTTSV15LoadModel
+
+    model = torch.nn.Linear(1, 1)
+    codec = torch.nn.Linear(1, 1)
+    processor = SimpleNamespace(audio_tokenizer=codec)
+    hooks = []
+
+    monkeypatch.setattr(loader.compat, "get_torch_device", lambda: torch.device("cpu"))
+    monkeypatch.setattr(loader.compat, "install_unload_hook", hooks.append)
+    monkeypatch.setattr(loader, "resolve_model_dirs", lambda *args: (tmp_path, tmp_path))
+    monkeypatch.setattr(loader, "_bundle_load_key", lambda *args: ("test",))
+    monkeypatch.setattr(loader.native, "read_tts_config", lambda *args: object())
+    monkeypatch.setattr(loader.native, "read_codec_config", lambda *args: object())
+    monkeypatch.setattr(loader.native, "build_tts_model", lambda *args: model)
+    monkeypatch.setattr(loader.native, "build_codec_model", lambda *args: codec)
+    monkeypatch.setattr(loader.native, "load_tts_weights", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loader.native, "load_codec_weights", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loader.native, "build_tokenizer", lambda *args: object())
+    monkeypatch.setattr(loader.native, "build_processor", lambda *args: processor)
+
+    bundle = loader.load_mosstts_bundle(
+        "local", dtype_name="fp32", attention="eager", download_if_missing=False,
+    )
+    try:
+        assert len(hooks) == 1
+        before = loader.bundle_generation()
+        assert MossTTSV15LoadModel.IS_CHANGED() == before
+        assert bundle.processor.audio_tokenizer is codec
+        hooks[0]("test unload")
+        assert loader.bundle_generation() == before + 1
+        assert MossTTSV15LoadModel.IS_CHANGED() == before + 1
+        assert bundle.model is None
+        assert bundle.codec is None
+        assert bundle.processor.audio_tokenizer is None
+    finally:
+        loader.unload_mosstts_bundle(bundle)
+
+
 def test_comfy_castable_modules_forward_without_comfy():
     """Converted modules must keep working when comfy.ops is absent."""
     import mosstts_v15.native as native
