@@ -140,7 +140,7 @@ def soft_empty_cache() -> None:
         torch.cuda.empty_cache()
 
 
-def install_unload_hook(unload_callback: Callable[[str], None]) -> None:
+def install_unload_hook(unload_callback: Callable[[str, Any], None]) -> None:
     """Wrap ComfyUI's native unload entry points so our bundle releases too.
 
     Idempotent. Note current_loaded_models entries hold weakrefs since
@@ -159,7 +159,7 @@ def install_unload_hook(unload_callback: Callable[[str], None]) -> None:
             try:
                 return __f(*args, **kwargs)
             finally:
-                unload_callback("ComfyUI unload_all_models")
+                unload_callback("ComfyUI unload_all_models", None)
 
         mm.unload_all_models = unload_all_models_hook
 
@@ -170,7 +170,7 @@ def install_unload_hook(unload_callback: Callable[[str], None]) -> None:
             try:
                 return __f(model, *args, **kwargs)
             finally:
-                unload_callback("ComfyUI unload_model_and_clones")
+                unload_callback("ComfyUI unload_model_and_clones", model)
 
         mm.unload_model_and_clones = unload_model_and_clones_hook
 

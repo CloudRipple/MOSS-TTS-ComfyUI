@@ -223,7 +223,10 @@ def test_load_installs_cache_invalidation_unload_hook(tmp_path, monkeypatch):
         before = loader.bundle_generation()
         assert MossTTSV15LoadModel.IS_CHANGED() == before
         assert bundle.processor.audio_tokenizer is codec
-        hooks[0]("test unload")
+        hooks[0]("unrelated unload", SimpleNamespace(clone_base_uuid="other"))
+        assert loader.bundle_generation() == before
+        assert bundle.model is model
+        hooks[0]("test unload", None)
         assert loader.bundle_generation() == before + 1
         assert MossTTSV15LoadModel.IS_CHANGED() == before + 1
         assert bundle.model is None

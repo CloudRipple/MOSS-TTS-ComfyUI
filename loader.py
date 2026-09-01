@@ -371,10 +371,23 @@ def unload_mosstts_bundle(bundle: Optional[MossTTSBundle], reason: str = "reques
         _ACTIVE_LOAD_KEY = None
 
 
-def _on_comfy_unload(reason: str) -> None:
+def _same_patcher(left: Any, right: Any) -> bool:
+    if left is right:
+        return True
+    left_uuid = getattr(left, "clone_base_uuid", None)
+    right_uuid = getattr(right, "clone_base_uuid", None)
+    return left_uuid is not None and left_uuid == right_uuid
+
+
+def _on_comfy_unload(reason: str, model: Any = None) -> None:
     global _BUNDLE_GENERATION
+    bundle = _ACTIVE_BUNDLE
+    if bundle is None:
+        return
+    if model is not None and not any(_same_patcher(model, patcher) for patcher in bundle.patchers):
+        return
     _BUNDLE_GENERATION += 1
-    unload_mosstts_bundle(_ACTIVE_BUNDLE, reason=reason)
+    unload_mosstts_bundle(bundle, reason=reason)
 
 
 def bundle_generation() -> int:
