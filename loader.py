@@ -187,7 +187,7 @@ def _ensure_writable_device_property(module: torch.nn.Module) -> None:
 
 
 def _register_with_comfy(module: torch.nn.Module, device: torch.device,
-                         dynamic: bool) -> Optional[Any]:
+                         dynamic: bool, *, load: bool = True) -> Optional[Any]:
     """Register module under a ModelPatcher and onload it through ComfyUI.
     Returns the patcher, or None when ComfyUI integration is unavailable."""
     _ensure_writable_device_property(module)
@@ -208,6 +208,11 @@ def _register_with_comfy(module: torch.nn.Module, device: torch.device,
             module.device = device
         except Exception:
             pass
+    # TTS and Codec can exceed the available VRAM when resident together.
+    # Register a patcher without loading it so runtime operations can resume
+    # only the component they currently need.
+    if not load:
+        return patcher
     if compat.load_models_gpu([patcher]):
         logger.info(
             "Registered %s with ComfyUI%s memory management.",
@@ -254,7 +259,8 @@ def load_mosstts_bundle(
 
     load_key = _bundle_load_key(spec, model_dir, codec_dir, device, dtype, attn)
     if _ACTIVE_BUNDLE is not None and _ACTIVE_LOAD_KEY == load_key:
-        resume_bundle(_ACTIVE_BUNDLE)
+        # Runtime operations resume only the component they need. Eagerly
+        # restoring both here would defeat the one-component VRAM policy.
         return _ACTIVE_BUNDLE
     if _ACTIVE_BUNDLE is not None:
         unload_mosstts_bundle(_ACTIVE_BUNDLE, reason="variant/dtype/attention/weights changed")
@@ -292,7 +298,8 @@ def load_mosstts_bundle(
     tts_patcher = _register_with_comfy(model, device, dynamic)
     if tts_patcher is not None:
         patchers.append(tts_patcher)
-    codec_patcher = _register_with_comfy(codec, device, dynamic)
+    # Keep Codec off GPU until an encode/decode operation needs it.
+    codec_patcher = _register_with_comfy(codec, device, dynamic, load=False)
     if codec_patcher is not None:
         patchers.append(codec_patcher)
 
@@ -308,10 +315,27 @@ def load_mosstts_bundle(
     return bundle
 
 
-def resume_bundle(bundle: MossTTSBundle) -> None:
-    """Re-onload patchers after ComfyUI may have offloaded them between runs."""
+def _resume_module(bundle: MossTTSBundle, module: torch.nn.Module) -> None:
+    """Load one bundle component, allowing ComfyUI to offload other patchers."""
     for patcher in bundle.patchers:
-        compat.load_models_gpu([patcher])
+        if getattr(patcher, "model", None) is module:
+            compat.load_models_gpu([patcher])
+            return
+    module.to(bundle.device)
+
+
+def resume_model(bundle: MossTTSBundle) -> None:
+    _resume_module(bundle, bundle.model)
+
+
+def resume_codec(bundle: MossTTSBundle) -> None:
+    _resume_module(bundle, bundle.codec)
+
+
+def resume_bundle(bundle: MossTTSBundle) -> None:
+    """Compatibility helper: resume both components when explicitly requested."""
+    resume_model(bundle)
+    resume_codec(bundle)
 
 
 def unload_mosstts_bundle(bundle: Optional[MossTTSBundle], reason: str = "requested") -> None:

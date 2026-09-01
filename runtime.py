@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 import torch
 
-from .loader import MossTTSBundle, resume_bundle
+from .loader import MossTTSBundle, resume_codec, resume_model
 
 logger = logging.getLogger("ComfyUI-MOSS-TTS-v15")
 
@@ -133,6 +133,7 @@ def _generate_kwargs(bundle: MossTTSBundle, *, max_new_tokens: int, do_sample: b
 
 def _extract_waveform(bundle: MossTTSBundle, outputs) -> torch.Tensor:
     """processor.decode() -> waveform tensor [C, T] (或 None-safe 报错)."""
+    resume_codec(bundle)
     decode_kwargs = {}
     if bundle.spec.key == "local":
         decode_kwargs["return_stereo"] = True
@@ -152,7 +153,7 @@ def _extract_waveform(bundle: MossTTSBundle, outputs) -> torch.Tensor:
 def _encode_reference(bundle: MossTTSBundle, audio: dict) -> torch.Tensor:
     """ComfyUI AUDIO -> codec codes [T, n_vq] following the variant's channel
     convention (local: mono duplicated to stereo; delay: down-mixed to mono)."""
-    resume_bundle(bundle)
+    resume_codec(bundle)
     wav, sample_rate = comfy_audio_to_tensor(audio)
     if bundle.spec.key == "local" and wav.shape[0] == 1:
         wav = wav.repeat(2, 1)
@@ -162,7 +163,7 @@ def _encode_reference(bundle: MossTTSBundle, audio: dict) -> torch.Tensor:
 
 def _run_generate(bundle: MossTTSBundle, conversation, *, mode: str,
                   seed: int, progress_callback=None, **kwargs) -> torch.Tensor:
-    resume_bundle(bundle)
+    resume_model(bundle)
     seed_everything(seed)
     batch = bundle.processor([conversation], mode=mode)
     input_ids = batch["input_ids"].to(bundle.device)
