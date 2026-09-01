@@ -56,7 +56,7 @@ class MossTTSBundle:
 
 def _models_root_candidates() -> list[Path]:
     roots: list[Path] = []
-    env_root = os.environ.get("MOSS_TTS_MODELS_DIR")
+    env_root = os.getenv("MOSS_TTS_MODELS_DIR")
     if env_root:
         roots.append(Path(env_root))
     comfy_root = compat.comfy_models_dir()
