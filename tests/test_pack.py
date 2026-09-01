@@ -93,6 +93,33 @@ class _FakeBundle:
     spec = _Spec()
 
 
+def test_bundle_repr_is_compact():
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from moss_tts.loader import MossTTSBundle
+
+    bundle = MossTTSBundle(
+        spec=SimpleNamespace(key="local"),
+        model=torch.nn.Linear(1, 1),
+        processor=SimpleNamespace(audio_tokenizer=object()),
+        codec=torch.nn.Linear(1, 1),
+        model_dir=Path("model"),
+        codec_dir=Path("codec"),
+        device=torch.device("cpu"),
+        torch_dtype=torch.float32,
+        dtype_name="fp32",
+        attn_implementation="eager",
+        patchers=[object()],
+    )
+    text = repr(bundle)
+    assert "model=" not in text
+    assert "processor=" not in text
+    assert "codec=" not in text
+    assert "patchers=" not in text
+    assert "dtype_name='fp32'" in text
+
+
 def test_generate_kwargs_local_vs_delay():
     import moss_tts.runtime as runtime
 

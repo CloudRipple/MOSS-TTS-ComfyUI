@@ -34,16 +34,16 @@ _BUNDLE_GENERATION = 0
 @dataclass
 class MossTTSBundle:
     spec: VariantSpec
-    model: Any
-    processor: Any
-    codec: Any
+    model: Any = field(repr=False)
+    processor: Any = field(repr=False)
+    codec: Any = field(repr=False)
     model_dir: Path
     codec_dir: Path
     device: torch.device
     torch_dtype: torch.dtype
     dtype_name: str
     attn_implementation: str
-    patchers: list[Any] = field(default_factory=list)
+    patchers: list[Any] = field(default_factory=list, repr=False)
 
     @property
     def sample_rate(self) -> int:
