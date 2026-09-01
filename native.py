@@ -510,6 +510,28 @@ class _ComfyLayerNorm(nn.LayerNorm, _CastWeightAttrs):
             )
 
 
+class _ComfyRMSNorm(nn.Module, _CastWeightAttrs):
+    """Comfy-cast-aware replacement for the vendored Qwen3 RMSNorm.
+
+    The original module multiplies its parameter directly. Under partial
+    ModelPatcher loading that parameter can remain on CPU while activations
+    are on CUDA, so it must use the same weight streaming path as Linear and
+    LayerNorm.
+    """
+
+    @property
+    def bias(self):
+        return None
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        with compat.cast_weight_context(self, hidden_states) as (weight, _bias, _stream):
+            normalized = hidden_states.to(torch.float32)
+            variance = normalized.pow(2).mean(-1, keepdim=True)
+            normalized = normalized * torch.rsqrt(variance + self.variance_epsilon)
+            return weight * normalized.to(input_dtype)
+
+
 class _ComfyConv1d(nn.Conv1d, _CastWeightAttrs):
     def forward(self, x):
         with compat.cast_weight_context(self, x) as (weight, bias, _stream):
@@ -552,6 +574,9 @@ def convert_modules_for_comfy(model: nn.Module) -> None:
     if compat._try_import("comfy.ops") is None:
         return
     for module in model.modules():
+        if type(module).__name__ == "MossQwen3RMSNorm":
+            module.__class__ = _ComfyRMSNorm
+            continue
         for base, castable in _CASTABLE:
             if type(module) is base:
                 module.__class__ = castable

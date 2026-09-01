@@ -227,6 +227,31 @@ def test_comfy_castable_modules_forward_without_comfy():
         assert out is not None
 
 
+def test_qwen_rmsnorm_is_comfy_castable(monkeypatch):
+    """Custom RMSNorm weights must participate in partial offload streaming."""
+    from moss_tts import compat
+    import moss_tts.native as native
+
+    native.tts_classes(native.VARIANTS["local"])
+    from _mossttsv15_moss_tts_local.qwen3_decoder import MossQwen3RMSNorm
+
+    norm = MossQwen3RMSNorm(8)
+    with monkeypatch.context() as patch:
+        original_try_import = compat._try_import
+        patch.setattr(
+            compat,
+            "_try_import",
+            lambda name: object() if name == "comfy.ops" else original_try_import(name),
+        )
+        native.convert_modules_for_comfy(norm)
+
+    assert type(norm) is native._ComfyRMSNorm
+    assert norm.comfy_cast_weights is True
+    x = torch.randn(2, 4, 8)
+    expected = x * torch.rsqrt(x.float().pow(2).mean(-1, keepdim=True) + norm.variance_epsilon)
+    assert torch.allclose(norm(x), expected.to(x.dtype), atol=1e-5, rtol=1e-5)
+
+
 def test_rotary_materialization_4x_rope_init_fn():
     """tf4.x-style rotary (rope_init_fn attr, no compute_default_rope_parameters)
     must get a recomputed inv_freq, not the historical zero-fill that left the
