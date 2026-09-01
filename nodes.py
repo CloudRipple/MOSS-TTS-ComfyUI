@@ -15,6 +15,7 @@ from .compat import ProgressReporter
 from .loader import (
     ATTENTION_OPTIONS,
     DTYPE_OPTIONS,
+    bundle_generation,
     load_mosstts_bundle,
 )
 from .native import DEFAULT_VARIANT, VARIANTS
@@ -98,6 +99,10 @@ class MossTTSV15LoadModel:
     FUNCTION = "load_model"
     CATEGORY = "MOSS-TTS v1.5"
     DESCRIPTION = "Load a MOSS-TTS v1.5 variant (weights + codec), integrated with ComfyUI memory management."
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return bundle_generation()
 
     def load_model(self, model: str, dtype: str, attention: str, download_if_missing: bool):
         bundle = load_mosstts_bundle(

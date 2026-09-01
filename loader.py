@@ -28,6 +28,7 @@ MODEL_FOLDER_NAME = "mosstts"
 
 _ACTIVE_BUNDLE: Optional["MossTTSBundle"] = None
 _ACTIVE_LOAD_KEY: Optional[tuple] = None
+_BUNDLE_GENERATION = 0
 
 
 @dataclass
@@ -311,7 +312,7 @@ def load_mosstts_bundle(
     )
     _ACTIVE_BUNDLE = bundle
     _ACTIVE_LOAD_KEY = load_key
-    compat.install_unload_hook(lambda reason: unload_mosstts_bundle(_ACTIVE_BUNDLE, reason=reason))
+    compat.install_unload_hook(_on_comfy_unload)
     return bundle
 
 
@@ -368,6 +369,16 @@ def unload_mosstts_bundle(bundle: Optional[MossTTSBundle], reason: str = "reques
     if _ACTIVE_BUNDLE is bundle:
         _ACTIVE_BUNDLE = None
         _ACTIVE_LOAD_KEY = None
+
+
+def _on_comfy_unload(reason: str) -> None:
+    global _BUNDLE_GENERATION
+    _BUNDLE_GENERATION += 1
+    unload_mosstts_bundle(_ACTIVE_BUNDLE, reason=reason)
+
+
+def bundle_generation() -> int:
+    return _BUNDLE_GENERATION
 
 
 def active_bundle() -> Optional[MossTTSBundle]:
