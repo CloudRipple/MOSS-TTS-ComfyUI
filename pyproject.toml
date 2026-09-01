@@ -1,7 +1,7 @@
 [project]
 name = "moss-tts"
 description = "ComfyUI custom nodes for OpenMOSS MOSS-TTS v1.5 — both variants: Local-Transformer (Qwen3-4B backbone, 48 kHz stereo) and Delay (8B, 24 kHz). Reference-free TTS, zero-shot voice cloning, continuation, duration control, 31 languages."
-version = "0.1.0"
+version = "0.1.1"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
