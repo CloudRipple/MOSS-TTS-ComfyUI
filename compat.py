@@ -109,16 +109,23 @@ def model_patcher_class(dynamic: bool):
 
 
 def load_models_gpu(patchers: list[Any]) -> bool:
-    """Push patchers onto the GPU through ComfyUI. No-op-safe: False if absent."""
+    """Push new or partially loaded patchers onto the GPU through ComfyUI."""
     mm = _try_import("comfy.model_management")
     if mm is None or not hasattr(mm, "load_models_gpu"):
         return False
-    already = {
-        id(getattr(loaded, "model", None))
-        for loaded in getattr(mm, "current_loaded_models", [])
-        if getattr(loaded, "model", None) is not None
-    }
-    todo = [p for p in patchers if id(p) not in already]
+    current = getattr(mm, "current_loaded_models", [])
+    todo = []
+    for patcher in patchers:
+        loaded = next((entry for entry in current
+                       if getattr(entry, "model", None) is patcher), None)
+        if loaded is None:
+            todo.append(patcher)
+            continue
+        try:
+            if loaded.model_loaded_memory() < loaded.model_memory():
+                todo.append(patcher)
+        except Exception:
+            todo.append(patcher)
     if todo:
         mm.load_models_gpu(todo)
     return True
