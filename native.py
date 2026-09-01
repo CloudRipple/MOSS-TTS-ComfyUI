@@ -368,7 +368,7 @@ def _load_state_stream(
                 continue
             target_dtype = torch.float32 if (quantizer_fp32 and _is_quantizer_key(name)) else dtype
             with safe_open(str(path), framework="pt", device="cpu") as handle:
-                tensor = handle.get_tensor(name)
+                tensor = handle.get_tensor(name).clone()
             _set_parameter(model, name, tensor, target_dtype, device)
             if pbar is not None:
                 pbar.update(1)
