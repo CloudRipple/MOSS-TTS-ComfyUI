@@ -47,6 +47,21 @@ and `download_if_missing` is on, they download from Hugging Face
 
 All generator nodes output `tokens_generated` (audio frames; seconds = frames / 12.5) so continuation chains can hand exact prefix lengths forward.
 
+## Remote API nodes (category `MOSS-TTS v1.5/Remote`)
+
+Instead of loading models locally, you can call the hosted Moss platform (mosi.cn) API:
+
+| Node | Purpose |
+|---|---|
+| Remote Connect | Connection settings: base_url / API key (or env `MOSS_API_KEY`) / model (moss-tts-1.5-flash, moss-tts-1.0-pro) / async toggle. |
+| Remote Speech | Hosted single-speaker TTS; requires a `voice_id`; the 1.5-flash model supports inline `[pause 1.5s]` markers. |
+| Remote Voice Clone | Clone a voice from a reference audio on the platform; returns the `voice_id` for Speech. |
+| Remote Voice List | List available voices (name + voice id) on your account. |
+
+Not available remotely: continuation, token-level duration control, sampling knobs — those need the local models.
+
+Get an API key from the [Moss platform](https://platform.mosi.cn) console ("API 密钥" page). Ready-made voices can be copied from the [Mossland voice library](https://mossland.studio/voice/library) (card → copy voice id) and pasted into Remote Speech.
+
 ## VRAM
 
 - Local (4B): ~12 GB bf16 active.

@@ -43,6 +43,21 @@ python install.py   # 只装缺失的轻量依赖
 
 生成节点都输出 `tokens_generated`（音频帧数，秒数 = 帧 / 12.5），供续写链精确传递前缀长度。
 
+## 远程 API 节点（分类 `MOSS-TTS v1.5/Remote`）
+
+不想本地加载模型时，也可以调用 Moss 平台（mosi.cn）托管 API：
+
+| 节点 | 作用 |
+|---|---|
+| Remote Connect | 连接配置：base_url / API key（可留空走环境变量 `MOSS_API_KEY`）/ 模型（moss-tts-1.5-flash、moss-tts-1.0-pro）/ 异步开关 |
+| Remote Speech | 远程单人 TTS，需填 voice_id；1.5-flash 支持文本内 `[pause 1.5s]` 停顿 |
+| Remote Voice Clone | 参考音频在平台上克隆音色，输出 voice_id 给 Speech 用 |
+| Remote Voice List | 列出账号已有音色（名称 + voice id） |
+
+远程路径不支持：续写（Continue）、token 时长控制、采样参数——这些只有本地模型能做。
+
+API key 在 [Moss 平台](https://platform.mosi.cn)控制台「API 密钥」页生成；现成音色可去 [Mossland 音色库](https://mossland.studio/voice/library) 挑，卡片上复制 voice id 填进 Remote Speech 即可。
+
 ## 显存
 
 - Local（4B）：bf16 约 12 GB。

@@ -279,3 +279,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MossTTSV15_ContinueSpeech": "MOSS-TTS v1.5 Continue Speech",
     "MossTTSV15_EstimateTokens": "MOSS-TTS v1.5 Estimate Tokens",
 }
+
+# Remote (hosted API) nodes — no local weights involved.
+from . import remote as _remote  # noqa: E402
+
+NODE_CLASS_MAPPINGS.update(_remote.REMOTE_NODE_CLASS_MAPPINGS)
+NODE_DISPLAY_NAME_MAPPINGS.update(_remote.REMOTE_NODE_DISPLAY_NAME_MAPPINGS)

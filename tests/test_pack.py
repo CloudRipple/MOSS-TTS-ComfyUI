@@ -17,7 +17,7 @@ pack = moss_tts
 
 def test_node_registry_complete():
     assert set(pack.NODE_CLASS_MAPPINGS) == set(pack.NODE_DISPLAY_NAME_MAPPINGS)
-    assert len(pack.NODE_CLASS_MAPPINGS) == 5
+    assert len(pack.NODE_CLASS_MAPPINGS) == 9  # 5 local + 4 remote
     for cls in pack.NODE_CLASS_MAPPINGS.values():
         inputs = cls.INPUT_TYPES()
         assert "required" in inputs

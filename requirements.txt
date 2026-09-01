@@ -4,3 +4,5 @@ huggingface-hub
 safetensors
 numpy
 tqdm
+requests
+soundfile
