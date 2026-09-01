@@ -6,9 +6,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-import mosstts_v15
+import moss_tts
 
-pack = mosstts_v15
+pack = moss_tts
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ def test_node_registry_complete():
 
 
 def test_variant_specs():
-    from mosstts_v15.native import VARIANTS
+    from moss_tts.native import VARIANTS
 
     local, delay = VARIANTS["local"], VARIANTS["delay"]
     assert local.sample_rate == 48000 and local.stereo and local.n_vq == 12
@@ -61,7 +61,7 @@ def test_estimate_tokens_empty():
 # ---------------------------------------------------------------------------
 
 def test_audio_conversions():
-    import mosstts_v15.runtime as runtime
+    import moss_tts.runtime as runtime
 
     wav3d = torch.zeros(1, 2, 4800)
     d1 = runtime.tensor_to_comfy_audio(wav3d, 48000)
@@ -77,7 +77,7 @@ def test_audio_conversions():
 # ---------------------------------------------------------------------------
 
 def test_require_text_fail_fast():
-    import mosstts_v15.runtime as runtime
+    import moss_tts.runtime as runtime
 
     with pytest.raises(ValueError):
         runtime._require_text("   ")
@@ -94,7 +94,7 @@ class _FakeBundle:
 
 
 def test_generate_kwargs_local_vs_delay():
-    import mosstts_v15.runtime as runtime
+    import moss_tts.runtime as runtime
 
     bundle = _FakeBundle()
     kwargs = dict(max_new_tokens=100, do_sample=True, text_temperature=1.0,
@@ -115,7 +115,7 @@ def test_generate_kwargs_local_vs_delay():
 # ---------------------------------------------------------------------------
 
 def test_cast_context_passthrough_without_comfy():
-    from mosstts_v15 import compat
+    from moss_tts import compat
 
     lin = torch.nn.Linear(4, 4)
     x = torch.zeros(1, 4)
@@ -124,21 +124,21 @@ def test_cast_context_passthrough_without_comfy():
 
 
 def test_progress_reporter_no_comfy():
-    from mosstts_v15 import compat
+    from moss_tts import compat
 
     rep = compat.ProgressReporter(10)
     rep(3, 10)  # must not raise
 
 
 def test_resolve_dtype_cpu_is_fp32():
-    from mosstts_v15.loader import resolve_dtype
+    from moss_tts.loader import resolve_dtype
 
     assert resolve_dtype("auto", torch.device("cpu")) is torch.float32
     assert resolve_dtype("bf16", torch.device("cpu")) is torch.float32
 
 
 def test_resolve_attention_never_crashes_without_flash():
-    from mosstts_v15.loader import resolve_attention
+    from moss_tts.loader import resolve_attention
 
     # CPU must resolve to eager regardless of request
     assert resolve_attention("auto", torch.device("cpu"), torch.float32) == "eager"
@@ -146,7 +146,7 @@ def test_resolve_attention_never_crashes_without_flash():
 
 
 def test_weight_norm_remap():
-    from mosstts_v15.native import _weight_norm_remap
+    from moss_tts.native import _weight_norm_remap
 
     assert _weight_norm_remap("a.weight_g") == "a.parametrizations.weight.original0"
     assert _weight_norm_remap("a.weight_v") == "a.parametrizations.weight.original1"
@@ -154,7 +154,7 @@ def test_weight_norm_remap():
 
 
 def test_models_dir_env_override(tmp_path, monkeypatch):
-    from mosstts_v15 import loader, native
+    from moss_tts import loader, native
 
     spec = native.VARIANTS["local"]
     d = tmp_path / spec.repo_id.split("/")[-1]
@@ -167,8 +167,8 @@ def test_models_dir_env_override(tmp_path, monkeypatch):
 def test_load_installs_cache_invalidation_unload_hook(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
-    from mosstts_v15 import loader
-    from mosstts_v15.nodes import MossTTSV15LoadModel
+    from moss_tts import loader
+    from moss_tts.nodes import MossTTSV15LoadModel
 
     model = torch.nn.Linear(1, 1)
     codec = torch.nn.Linear(1, 1)
@@ -208,7 +208,7 @@ def test_load_installs_cache_invalidation_unload_hook(tmp_path, monkeypatch):
 
 def test_comfy_castable_modules_forward_without_comfy():
     """Converted modules must keep working when comfy.ops is absent."""
-    import mosstts_v15.native as native
+    import moss_tts.native as native
 
     for mod, x in (
         (torch.nn.Linear(8, 8), torch.randn(2, 8)),
@@ -233,7 +233,7 @@ def test_rotary_materialization_4x_rope_init_fn():
     model position-blind on transformers 4.x."""
     import torch.nn as nn
 
-    import mosstts_v15.native as native
+    import moss_tts.native as native
 
     class Fake4xRotaryEmbedding(nn.Module):
         def __init__(self):

@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import torch
 
-import mosstts_v15.native as native
-from mosstts_v15.native import VARIANTS
+import moss_tts.native as native
+from moss_tts.native import VARIANTS
 
 
 def _real_tokenizer(spec):
