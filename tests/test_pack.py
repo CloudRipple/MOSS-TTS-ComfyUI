@@ -241,6 +241,36 @@ def test_load_installs_cache_invalidation_unload_hook(tmp_path, monkeypatch):
         loader.unload_mosstts_bundle(bundle)
 
 
+def test_stale_bundle_reactivates_with_original_options(monkeypatch):
+    from types import SimpleNamespace
+
+    from moss_tts import loader
+
+    stale = SimpleNamespace(
+        spec=SimpleNamespace(key="voicegen"),
+        model=None,
+        codec=None,
+        dtype_name="auto",
+        attn_implementation="sdpa",
+    )
+    fresh = object()
+    captured = {}
+
+    def fake_load(variant, **kwargs):
+        captured["variant"] = variant
+        captured.update(kwargs)
+        return fresh
+
+    monkeypatch.setattr(loader, "load_mosstts_bundle", fake_load)
+    assert loader.ensure_mosstts_bundle(stale) is fresh
+    assert captured == {
+        "variant": "voicegen",
+        "dtype_name": "auto",
+        "attention": "sdpa",
+        "download_if_missing": False,
+    }
+
+
 def test_comfy_castable_modules_forward_without_comfy():
     """Converted modules must keep working when comfy.ops is absent."""
     import moss_tts.native as native

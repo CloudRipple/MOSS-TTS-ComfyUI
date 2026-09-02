@@ -325,18 +325,45 @@ def _resume_module(bundle: MossTTSBundle, module: torch.nn.Module) -> None:
     module.to(bundle.device)
 
 
-def resume_model(bundle: MossTTSBundle) -> None:
+def ensure_mosstts_bundle(bundle: MossTTSBundle) -> MossTTSBundle:
+    """Return a live bundle for a possibly stale cached Load Model output.
+
+    Only one heavyweight bundle is retained at a time. A workflow can still
+    contain multiple Load Model nodes: switching variants invalidates the old
+    node output, and this function transparently reloads it when a downstream
+    runtime node needs that variant again.
+    """
+    if (
+        bundle is _ACTIVE_BUNDLE
+        and isinstance(bundle.model, torch.nn.Module)
+        and isinstance(bundle.codec, torch.nn.Module)
+    ):
+        return bundle
+    logger.info("Reactivating cached MOSS-TTS bundle for variant=%s.", bundle.spec.key)
+    return load_mosstts_bundle(
+        bundle.spec.key,
+        dtype_name=bundle.dtype_name,
+        attention=bundle.attn_implementation,
+        download_if_missing=False,
+    )
+
+
+def resume_model(bundle: MossTTSBundle) -> MossTTSBundle:
+    bundle = ensure_mosstts_bundle(bundle)
     _resume_module(bundle, bundle.model)
+    return bundle
 
 
-def resume_codec(bundle: MossTTSBundle) -> None:
+def resume_codec(bundle: MossTTSBundle) -> MossTTSBundle:
+    bundle = ensure_mosstts_bundle(bundle)
     _resume_module(bundle, bundle.codec)
+    return bundle
 
 
-def resume_bundle(bundle: MossTTSBundle) -> None:
+def resume_bundle(bundle: MossTTSBundle) -> MossTTSBundle:
     """Compatibility helper: resume both components when explicitly requested."""
-    resume_model(bundle)
-    resume_codec(bundle)
+    bundle = resume_model(bundle)
+    return resume_codec(bundle)
 
 
 def unload_mosstts_bundle(bundle: Optional[MossTTSBundle], reason: str = "requested") -> None:
