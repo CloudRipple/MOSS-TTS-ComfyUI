@@ -17,7 +17,7 @@ pack = moss_tts
 
 def test_node_registry_complete():
     assert set(pack.NODE_CLASS_MAPPINGS) == set(pack.NODE_DISPLAY_NAME_MAPPINGS)
-    assert len(pack.NODE_CLASS_MAPPINGS) == 5
+    assert len(pack.NODE_CLASS_MAPPINGS) == 6
     for cls in pack.NODE_CLASS_MAPPINGS.values():
         inputs = cls.INPUT_TYPES()
         assert "required" in inputs
@@ -28,9 +28,12 @@ def test_node_registry_complete():
 def test_variant_specs():
     from moss_tts.native import VARIANTS
 
-    local, delay = VARIANTS["local"], VARIANTS["delay"]
+    local, delay, voicegen = VARIANTS["local"], VARIANTS["delay"], VARIANTS["voicegen"]
     assert local.sample_rate == 48000 and local.stereo and local.n_vq == 12
     assert delay.sample_rate == 24000 and not delay.stereo and delay.n_vq == 32
+    assert voicegen.sample_rate == 24000 and not voicegen.stereo and voicegen.n_vq == 16
+    assert voicegen.asset_pkg == delay.asset_pkg  # same MossTTSDelay family
+    assert voicegen.repo_id == "OpenMOSS-Team/MOSS-VoiceGenerator"
     assert "tokenizer" in ("tokenizer",)  # smoke: nothing to check, kept honest
     assert local.repo_id != delay.repo_id and local.codec_repo_id != delay.codec_repo_id
 
@@ -87,6 +90,8 @@ def test_require_text_fail_fast():
 
 class _Spec:
     key = "local"
+    asset_pkg = "moss_tts_local"
+    stereo = True
 
 
 class _FakeBundle:
@@ -130,7 +135,7 @@ def test_generate_kwargs_local_vs_delay():
     local = runtime._generate_kwargs(bundle, **kwargs)
     assert local["do_sample"] is True and local["max_new_tokens"] == 100
 
-    bundle.spec.key = "delay"
+    bundle.spec.asset_pkg = "moss_tts_delay"
     delay = runtime._generate_kwargs(bundle, **{**kwargs, "do_sample": True})
     assert "do_sample" not in delay  # delay has no such arg
     delay_greedy = runtime._generate_kwargs(bundle, **{**kwargs, "do_sample": False})
@@ -309,3 +314,35 @@ def test_rotary_materialization_4x_rope_init_fn():
     assert mod.inv_freq.device.type == "cpu"
     assert torch.all(mod.inv_freq != 0)
     assert mod.attention_scaling == 1.0
+
+
+def test_voice_design_node_guards():
+    import moss_tts.nodes as nodes
+
+    node = nodes.MossTTSV15VoiceDesign()
+    knobs = dict(
+        language="auto", instruction="", audio_temperature=1.5, audio_top_p=0.6,
+        audio_top_k=50, audio_repetition_penalty=1.1, text_temperature=1.0,
+        text_top_p=1.0, text_top_k=50, target_tokens=0, max_new_tokens=100,
+        do_sample=True, seed=42,
+    )
+    bundle = _FakeBundle()  # spec.key = "local"
+    with pytest.raises(ValueError, match="VoiceGenerator"):
+        node.run(bundle, "hi", **knobs)
+    bundle.spec.key = "voicegen"
+    with pytest.raises(ValueError, match="instruction"):
+        node.run(bundle, "hi", **knobs)
+
+
+def test_voicegen_uses_delay_kwargs_path():
+    import moss_tts.runtime as runtime
+
+    bundle = _FakeBundle()
+    bundle.spec.key = "voicegen"
+    bundle.spec.asset_pkg = "moss_tts_delay"
+    bundle.spec.stereo = False
+    kwargs = dict(max_new_tokens=100, do_sample=True, text_temperature=1.0,
+                  text_top_p=1.0, text_top_k=50, audio_temperature=1.5,
+                  audio_top_p=0.6, audio_top_k=50, audio_repetition_penalty=1.1)
+    out = runtime._generate_kwargs(bundle, **kwargs)
+    assert "do_sample" not in out  # delay-family generate() rejects extra kwargs

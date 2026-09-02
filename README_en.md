@@ -3,12 +3,14 @@
 [中文](README.md)
 
 ComfyUI custom nodes for [OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5)
-and [OpenMOSS-Team/MOSS-TTS-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5):
+[OpenMOSS-Team/MOSS-TTS-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5), and
+[OpenMOSS-Team/MOSS-VoiceGenerator](https://huggingface.co/OpenMOSS-Team/MOSS-VoiceGenerator):
 
 - **Local-Transformer** — Qwen3-**4B**-class backbone + nano-GPT2 local transformer, MOSS-Audio-Tokenizer-v2, **48 kHz stereo**, n_vq=12. (Note: the "1.7B" floating around in other packs' READMEs is wrong; the backbone config is Qwen3-4B-shaped, checkpoint ≈ 9.1 GB in bf16.)
 - **Delay** — 8B delay-pattern model, MOSS-Audio-Tokenizer (v1), **24 kHz**, n_vq=32.
+- **VoiceGenerator** — 1.7B voice-design model (MossTTSDelay family, shares the delay code path): speak a voice described in text, no reference audio needed; **24 kHz**, n_vq=16. Its output can feed Voice Clone as reference — design -> clone -> produce.
 
-Both are loaded through the same nodes.
+All three are loaded through the same nodes; switch variants in Load Model.
 
 ## Highlights
 
@@ -39,9 +41,10 @@ and `download_if_missing` is on, they download from Hugging Face
 
 | Node | Purpose |
 |---|---|
-| MOSS-TTS v1.5 Load Model | Load variant (`local` / `delay`), dtype (auto/bf16/fp16/fp32), attention (auto/sdpa/flash_attention_2/eager), download toggle. |
+| MOSS-TTS v1.5 Load Model | Load variant (`local` / `delay` / `voicegen`), dtype (auto/bf16/fp16/fp32), attention (auto/sdpa/flash_attention_2/eager), download toggle. |
 | MOSS-TTS v1.5 Generate Speech | Reference-free TTS. |
 | MOSS-TTS v1.5 Voice Clone | Clone from a reference `AUDIO` input. |
+| MOSS-TTS v1.5 Voice Design | `instruction` holds the voice description (required); speaks it directly (use with VoiceGenerator). |
 | MOSS-TTS v1.5 Continue Speech | Prefix continuation: extend a clip in the same voice. Outputs both the new segment and the stitched full audio (+ exact frame counts for chaining). |
 | MOSS-TTS v1.5 Estimate Tokens | Text → `target_tokens` estimate for duration control. |
 
@@ -51,6 +54,7 @@ All generator nodes output `tokens_generated` (audio frames; seconds = frames / 
 
 - Local (4B): ~12 GB bf16 active.
 - Delay (8B): ~22 GB bf16 active.
+- VoiceGenerator (1.7B): ~4 GB bf16 model + ~7 GB fp32 codec.
 
 Keep voice-clone references short (5–15 s); prefix/PKV memory grows linearly with prefix duration.
 

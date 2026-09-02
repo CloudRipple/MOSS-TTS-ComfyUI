@@ -85,7 +85,7 @@ class MossTTSV15LoadModel:
         return {
             "required": {
                 "model": (_VARIANT_LABELS, {"default": VARIANTS[DEFAULT_VARIANT].label,
-                                            "tooltip": "Local-Transformer (4B, 48kHz stereo, Qwen3-4B backbone) or Delay (8B, 24kHz)."}),
+                                            "tooltip": "Local-Transformer (4B, 48kHz stereo, Qwen3-4B backbone) or Delay (8B, 24kHz) or VoiceGenerator (1.7B, 24kHz, voice design)."}),
                 "dtype": (DTYPE_OPTIONS, {"default": "auto", "tooltip": "auto = bf16 on CUDA, fp32 on CPU."}),
                 "attention": (ATTENTION_OPTIONS, {"default": "auto",
                                                   "tooltip": "auto = flash_attention_2 when the flash_attn package exists, else sdpa."}),
@@ -179,6 +179,54 @@ class MossTTSV15VoiceClone:
         return (runtime.tensor_to_comfy_audio(wav, mosstts_model.spec.sample_rate), frames)
 
 
+class MossTTSV15VoiceDesign:
+    """MOSS-VoiceGenerator（MossTTSDelay 家族，1.7B）：用文字描述音色并直接
+    发声，不需要参考音频。官方对该模型推荐的采样默认值与 delay 不同
+    （1.5 / 0.6 / 50 / 1.1），故本节点单独给出默认值。"""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        knobs = _all_knobs()
+        instruction = knobs.pop("instruction")
+        instruction = ("STRING", {**instruction[1], "default": "A warm, friendly, young female voice.",
+                                  "tooltip": "音色描述（必填）：性别/年龄/情绪/语速/口音等，中英文均可。产出音频可直接当 Voice Clone 的参考。"})
+        # MOSS-VoiceGenerator recommended decoding defaults.
+        for name, default in (("audio_temperature", 1.5), ("audio_top_p", 0.6),
+                              ("audio_top_k", 50), ("audio_repetition_penalty", 1.1)):
+            typ, kw = knobs[name]
+            knobs[name] = (typ, {**kw, "default": default})
+        return {"required": {
+            "mosstts_model": (MODEL_TYPE, {}),
+            "instruction": instruction,
+            "text": ("STRING", {"multiline": True, "default": "Hello! This voice was designed from a text description."}),
+            **knobs,
+        }}
+
+    RETURN_TYPES = ("AUDIO", "INT")
+    RETURN_NAMES = ("audio", "tokens_generated")
+    FUNCTION = "run"
+    CATEGORY = "MOSS-TTS v1.5"
+    DESCRIPTION = "声音设计：用文本描述音色并直接发声（MOSS-VoiceGenerator），无需参考音频。"
+
+    def run(self, mosstts_model, text, language, instruction, audio_temperature,
+            audio_top_p, audio_top_k, audio_repetition_penalty, text_temperature,
+            text_top_p, text_top_k, target_tokens, max_new_tokens, do_sample, seed):
+        if mosstts_model.spec.key != "voicegen":
+            raise ValueError("Voice Design 需要在 Load Model 里选择 MOSS-VoiceGenerator。")
+        if not (instruction or "").strip():
+            raise ValueError("Voice Design 必须提供音色描述（instruction）。")
+        wav, frames = runtime.generate_speech(
+            mosstts_model, text=text, language=language, instruction=instruction,
+            target_tokens=target_tokens, max_new_tokens=max_new_tokens, seed=seed,
+            do_sample=do_sample, text_temperature=text_temperature, text_top_p=text_top_p,
+            text_top_k=text_top_k, audio_temperature=audio_temperature,
+            audio_top_p=audio_top_p, audio_top_k=audio_top_k,
+            audio_repetition_penalty=audio_repetition_penalty,
+            progress_callback=ProgressReporter(max_new_tokens),
+        )
+        return (runtime.tensor_to_comfy_audio(wav, mosstts_model.spec.sample_rate), frames)
+
+
 class MossTTSV15ContinueSpeech:
     @classmethod
     def INPUT_TYPES(cls):
@@ -268,6 +316,7 @@ NODE_CLASS_MAPPINGS = {
     "MossTTSV15_LoadModel": MossTTSV15LoadModel,
     "MossTTSV15_GenerateSpeech": MossTTSV15GenerateSpeech,
     "MossTTSV15_VoiceClone": MossTTSV15VoiceClone,
+    "MossTTSV15_VoiceDesign": MossTTSV15VoiceDesign,
     "MossTTSV15_ContinueSpeech": MossTTSV15ContinueSpeech,
     "MossTTSV15_EstimateTokens": MossTTSV15EstimateTokens,
 }
@@ -276,6 +325,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MossTTSV15_LoadModel": "MOSS-TTS v1.5 Load Model",
     "MossTTSV15_GenerateSpeech": "MOSS-TTS v1.5 Generate Speech",
     "MossTTSV15_VoiceClone": "MOSS-TTS v1.5 Voice Clone",
+    "MossTTSV15_VoiceDesign": "MOSS-TTS v1.5 Voice Design",
     "MossTTSV15_ContinueSpeech": "MOSS-TTS v1.5 Continue Speech",
     "MossTTSV15_EstimateTokens": "MOSS-TTS v1.5 Estimate Tokens",
 }

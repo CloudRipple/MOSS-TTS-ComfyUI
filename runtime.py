@@ -120,8 +120,8 @@ def _generate_kwargs(bundle: MossTTSBundle, *, max_new_tokens: int, do_sample: b
         "audio_repetition_penalty": float(audio_repetition_penalty),
         "show_progress": False,
     }
-    if bundle.spec.key == "delay":
-        # Delay has no do_sample flag; temperature <= 0 means greedy.
+    if bundle.spec.asset_pkg == "moss_tts_delay":
+        # Delay family has no do_sample flag; temperature <= 0 means greedy.
         if not do_sample:
             base["text_temperature"] = 0.0
             base["audio_temperature"] = 0.0
@@ -135,7 +135,7 @@ def _extract_waveform(bundle: MossTTSBundle, outputs) -> torch.Tensor:
     """processor.decode() -> waveform tensor [C, T] (或 None-safe 报错)."""
     resume_codec(bundle)
     decode_kwargs = {}
-    if bundle.spec.key == "local":
+    if bundle.spec.stereo:
         decode_kwargs["return_stereo"] = True
     messages = bundle.processor.decode(outputs, **decode_kwargs)
     for message in messages:
@@ -155,7 +155,7 @@ def _encode_reference(bundle: MossTTSBundle, audio: dict) -> torch.Tensor:
     convention (local: mono duplicated to stereo; delay: down-mixed to mono)."""
     resume_codec(bundle)
     wav, sample_rate = comfy_audio_to_tensor(audio)
-    if bundle.spec.key == "local" and wav.shape[0] == 1:
+    if bundle.spec.stereo and wav.shape[0] == 1:
         wav = wav.repeat(2, 1)
     codes_list = bundle.processor.encode_audios_from_wav([wav], sample_rate)
     return codes_list[0]

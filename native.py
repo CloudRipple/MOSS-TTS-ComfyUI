@@ -79,6 +79,19 @@ VARIANTS: dict[str, VariantSpec] = {
         stereo=False,
         n_vq=32,
     ),
+    "voicegen": VariantSpec(
+        key="voicegen",
+        label="MOSS-VoiceGenerator (1.7B, 24kHz, voice design)",
+        repo_id="OpenMOSS-Team/MOSS-VoiceGenerator",
+        codec_repo_id="OpenMOSS-Team/MOSS-Audio-Tokenizer",
+        # Same MossTTSDelay family as the delay variant: shared vendored code,
+        # different checkpoint (n_vq=16) and sampling defaults.
+        asset_pkg="moss_tts_delay",
+        codec_asset_pkg="moss_audio_tokenizer_v1",
+        sample_rate=24000,
+        stereo=False,
+        n_vq=16,
+    ),
 }
 
 DEFAULT_VARIANT = "local"
@@ -122,19 +135,19 @@ def _register_asset_package(pkg_dir_name: str) -> None:
 def tts_classes(spec: VariantSpec):
     """Return (Config, Model, Processor) classes for the TTS model of `spec`."""
     _register_asset_package(spec.asset_pkg)
-    if spec.key == "local":
+    if spec.asset_pkg == "moss_tts_local":
         from _mossttsv15_moss_tts_local.configuration_moss_tts import MossTTSLocalConfig
         from _mossttsv15_moss_tts_local.modeling_moss_tts import MossTTSLocalModel
         from _mossttsv15_moss_tts_local.processing_moss_tts import MossTTSLocalProcessor
 
         return MossTTSLocalConfig, MossTTSLocalModel, MossTTSLocalProcessor
-    if spec.key == "delay":
+    if spec.asset_pkg == "moss_tts_delay":  # delay + voicegen share this family
         from _mossttsv15_moss_tts_delay.configuration_moss_tts import MossTTSDelayConfig
         from _mossttsv15_moss_tts_delay.modeling_moss_tts import MossTTSDelayModel
         from _mossttsv15_moss_tts_delay.processing_moss_tts import MossTTSDelayProcessor
 
         return MossTTSDelayConfig, MossTTSDelayModel, MossTTSDelayProcessor
-    raise ValueError(f"unknown variant: {spec.key}")
+    raise ValueError(f"unknown asset package: {spec.asset_pkg}")
 
 
 def codec_classes(spec: VariantSpec):
@@ -175,7 +188,7 @@ def read_codec_config(spec: VariantSpec, codec_dir: Path):
 
 def build_tts_model(spec: VariantSpec, config, attn_implementation: str):
     _, ModelCls, _ = tts_classes(spec)
-    if spec.key == "local":
+    if spec.asset_pkg == "moss_tts_local":
         config.attn_implementation = attn_implementation
         if hasattr(config, "qwen3_config"):
             config.qwen3_config._attn_implementation = attn_implementation
@@ -183,7 +196,7 @@ def build_tts_model(spec: VariantSpec, config, attn_implementation: str):
         config.local_transformer_attn_implementation = (
             "sdpa" if attn_implementation == "eager" else attn_implementation
         )
-    else:  # delay — plain Qwen3Model from transformers reads _attn_implementation
+    else:  # delay family — plain Qwen3Model reads _attn_implementation
         config.language_config._attn_implementation = attn_implementation
     with torch.device("meta"):
         model = ModelCls(config)
@@ -383,7 +396,7 @@ def load_tts_weights(spec: VariantSpec, model: nn.Module, model_dir: Path,
                      dtype: torch.dtype, weight_device: torch.device,
                      progress_callback: Optional[Callable[[int, int], None]] = None) -> None:
     entries = _iter_safetensors_entries(model_dir)
-    if spec.key == "local":
+    if spec.asset_pkg == "moss_tts_local":
         # text_lm_head.weight + audio_lm_heads.{i}.weight are tied to the
         # embedding tables; skip loading them, then re-alias via tie_weights()
         # (which only relinks — it never re-initializes the trained
@@ -393,7 +406,7 @@ def load_tts_weights(spec: VariantSpec, model: nn.Module, model_dir: Path,
         _load_state_stream(model, entries, dtype, weight_device, "MOSS-TTS",
                            progress_callback, skip_keys=tied)
         model.tie_weights()
-    else:  # delay — plain key set, nothing tied
+    else:  # delay family — plain key set, nothing tied
         _load_state_stream(model, entries, dtype, weight_device, "MOSS-TTS",
                            progress_callback)
     _materialize_non_persistent_buffers(model, weight_device)

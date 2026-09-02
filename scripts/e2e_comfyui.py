@@ -25,8 +25,29 @@ from pathlib import Path
 VARIANT_LABEL = {
     "local": "MOSS-TTS-Local-Transformer-v1.5 (4B, 48kHz stereo)",
     "delay": "MOSS-TTS-v1.5 (8B, 24kHz)",
+    "voicegen": "MOSS-VoiceGenerator (1.7B, 24kHz, voice design)",
 }
-EXPECT_SR = {"local": 48000, "delay": 24000}
+EXPECT_SR = {"local": 48000, "delay": 24000, "voicegen": 24000}
+
+VG_INSTRUCTION = "疲惫沙哑的老年声音缓慢抱怨，带有轻微呻吟。"
+# MOSS-VoiceGenerator recommended decoding defaults (from its model card).
+VG_SAMPLING = {"audio_temperature": 1.5, "audio_top_p": 0.6,
+               "audio_top_k": 50, "audio_repetition_penalty": 1.1}
+
+
+def prompt_voice_design(seed: int, max_new_tokens: int) -> dict:
+    sampling = {**_common_sampling(seed, max_new_tokens), **VG_SAMPLING}
+    sampling.pop("instruction")  # VoiceDesign takes the voice description here
+    return {"prompt": {
+        "1": {"class_type": "MossTTSV15_LoadModel", "inputs": {
+            "model": VARIANT_LABEL["voicegen"], "dtype": "auto", "attention": "auto",
+            "download_if_missing": False}},
+        "2": {"class_type": "MossTTSV15_VoiceDesign", "inputs": {
+            "mosstts_model": ["1", 0], "instruction": VG_INSTRUCTION,
+            "text": TEXT_A, **sampling}},
+        "9": {"class_type": "SaveAudio", "inputs": {
+            "audio": ["2", 0], "filename_prefix": "e2e_voicegen_design"}},
+    }}
 
 TEXT_A = "大家好，这里是 MOSS-TTS v1.5 的端到端验证。如果你听到了这段话，说明生成工作正常。"
 TEXT_B = "接下来这句是续写段落，用来验证同一说话人的无缝衔接。"
@@ -165,8 +186,8 @@ def validate_wav(path: Path, expect_sr: int, min_seconds: float = 0.5) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--server", default="http://127.0.0.1:8188")
-    ap.add_argument("--variant", choices=["local", "delay"], required=True)
-    ap.add_argument("--mode", choices=["speak", "clone", "continue"], required=True)
+    ap.add_argument("--variant", choices=["local", "delay", "voicegen"], required=True)
+    ap.add_argument("--mode", choices=["speak", "clone", "continue", "voicedesign"], required=True)
     ap.add_argument("--ref", type=Path, help="reference wav (clone/continue)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--max-new-tokens", type=int, default=512)
@@ -175,7 +196,12 @@ def main() -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.mode == "speak":
+    if args.mode == "voicedesign":
+        assert args.variant == "voicegen", "voicedesign mode requires --variant voicegen"
+        result = run_prompt(args.server, prompt_voice_design(args.seed, args.max_new_tokens),
+                            "voicegen/voicedesign")
+        names = result["saved"]
+    elif args.mode == "speak":
         result = run_prompt(args.server, prompt_speak(args.variant, args.seed, args.max_new_tokens),
                             f"{args.variant}/speak")
         names = result["saved"]

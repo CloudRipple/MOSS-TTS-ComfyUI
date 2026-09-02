@@ -2,12 +2,13 @@
 
 [English](README_en.md)
 
-支持 MOSS-TTS v1.5 两个变体的 ComfyUI 自定义节点：
+支持 MOSS-TTS v1.5 两个变体 + MOSS-VoiceGenerator 声音设计模型的 ComfyUI 自定义节点：
 
 - **Local-Transformer**：Qwen3-**4B** 级主干 + nano-GPT2 局部变换器，配 MOSS-Audio-Tokenizer-v2，**48 kHz 立体声**，n_vq=12。（其他扩展 README 里流传的 "1.7B" 不准确——主干是 Qwen3-4B 形状，bf16 权重约 9.1GB。）
 - **Delay**：8B delay-pattern 模型，配 MOSS-Audio-Tokenizer（v1），**24 kHz**，n_vq=32。
+- **VoiceGenerator**：1.7B 声音设计模型（MossTTSDelay 家族，与 Delay 复用同一套代码路径），用文字描述音色直接发声、无需参考音频，**24 kHz**，n_vq=16；产出音频可直接当 Voice Clone 的参考，串成"设计音色→克隆→量产"链路。
 
-两个变体走同一组节点，Load Model 节点里下拉切换。
+三个变体走同一组节点，Load Model 节点里下拉切换。
 
 ## 特性
 
@@ -35,9 +36,10 @@ python install.py   # 只装缺失的轻量依赖
 
 | 节点 | 作用 |
 |---|---|
-| Load Model | 选变体（local / delay）、dtype、attention、是否允许下载。 |
+| Load Model | 选变体（local / delay / voicegen）、dtype、attention、是否允许下载。 |
 | Generate Speech | 无参考 TTS，语言 + instruction 引导声音。 |
 | Voice Clone | 参考音频声音克隆。 |
+| Voice Design | 音色描述（instruction 必填）+ 文本直接发声（配 VoiceGenerator 使用）。 |
 | Continue Speech | 前缀续写；输出新段+拼好的完整音频+帧数（便于链式衔接）。 |
 | Estimate Tokens | 文本 → `target_tokens` 估算。 |
 
@@ -47,6 +49,7 @@ python install.py   # 只装缺失的轻量依赖
 
 - Local（4B）：bf16 约 12 GB。
 - Delay（8B）：bf16 约 22 GB。
+- VoiceGenerator（1.7B）：bf16 模型约 4 GB + codec（fp32）约 7 GB。
 
 克隆参考音频建议 5–15 秒；前缀越长，KV cache 越大。
 
