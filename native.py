@@ -590,6 +590,19 @@ def convert_modules_for_comfy(model: nn.Module) -> None:
         if type(module).__name__ == "MossQwen3RMSNorm":
             module.__class__ = _ComfyRMSNorm
             continue
+        # weight_norm() wraps Conv1d in a generated ParametrizedConv1d class.
+        # Replacing that class would discard its weight parametrization, so
+        # retain the class and bind only the Comfy-aware forward/attributes.
+        if (
+            isinstance(module, nn.Conv1d)
+            and type(module) is not nn.Conv1d
+            and nn.utils.parametrize.is_parametrized(module, "weight")
+        ):
+            module.forward = _ComfyConv1d.forward.__get__(module, type(module))
+            module.comfy_cast_weights = True
+            module.weight_function = []
+            module.bias_function = []
+            continue
         for base, castable in _CASTABLE:
             if type(module) is base:
                 module.__class__ = castable

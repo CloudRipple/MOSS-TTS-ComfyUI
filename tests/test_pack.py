@@ -287,6 +287,110 @@ def test_qwen_rmsnorm_is_comfy_castable(monkeypatch):
     assert torch.allclose(norm(x), expected.to(x.dtype), atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize(
+    ("variant", "module_name"),
+    (
+        ("delay", "_mossttsv15_moss_audio_tokenizer_v1.modeling_moss_audio_tokenizer"),
+        ("local", "_mossttsv15_moss_audio_tokenizer_v2.modeling_moss_audio_tokenizer"),
+    ),
+)
+def test_codec_lfq_routes_codebook_reads_through_embedding(variant, module_name):
+    """Decode and encode paths must not bypass Comfy's castable Embedding."""
+    import importlib
+
+    from moss_tts import native
+
+    native.codec_classes(native.VARIANTS[variant])
+    module = importlib.import_module(module_name)
+
+    class ProbeEmbedding(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.table = torch.nn.Parameter(torch.randn(8, 4))
+            self.calls = 0
+
+        @property
+        def weight(self):
+            raise AssertionError("codebook.weight bypasses Embedding.forward")
+
+        def forward(self, indices):
+            self.calls += 1
+            return torch.nn.functional.embedding(indices, self.table)
+
+    quantizer = module.MossAudioTokenizerLFQ(
+        input_dim=4, codebook_size=8, codebook_dim=4,
+    )
+    probe = ProbeEmbedding()
+    quantizer.codebook = probe
+
+    decoded = quantizer.embed_code(torch.tensor([[1, 2, 3]]))
+    assert decoded.shape == (1, 3, 4)
+
+    z_q, indices = quantizer.decode_latents(torch.randn(1, 4, 3))
+    assert z_q.shape == (1, 4, 3)
+    assert indices.shape == (1, 3)
+    assert probe.calls == 3
+
+
+def test_weight_normalized_conv_keeps_parametrization_and_gets_cast_forward(monkeypatch):
+    """Codec WNConv1d must stream weights without losing weight_norm."""
+    from moss_tts import compat
+    import moss_tts.native as native
+
+    conv = torch.nn.utils.parametrizations.weight_norm(torch.nn.Conv1d(4, 8, 1))
+    x = torch.randn(2, 4, 5)
+    expected = conv(x)
+    original_type = type(conv)
+
+    with monkeypatch.context() as patch:
+        original_try_import = compat._try_import
+        patch.setattr(
+            compat,
+            "_try_import",
+            lambda name: object() if name == "comfy.ops" else original_try_import(name),
+        )
+        native.convert_modules_for_comfy(conv)
+
+    assert type(conv) is original_type
+    assert torch.nn.utils.parametrize.is_parametrized(conv, "weight")
+    assert conv.comfy_cast_weights is True
+    assert conv.forward.__func__ is native._ComfyConv1d.forward
+    assert torch.allclose(conv(x), expected)
+
+
+@pytest.mark.parametrize(
+    ("variant", "module_name"),
+    (
+        ("delay", "_mossttsv15_moss_audio_tokenizer_v1.modeling_moss_audio_tokenizer"),
+        ("local", "_mossttsv15_moss_audio_tokenizer_v2.modeling_moss_audio_tokenizer"),
+    ),
+)
+def test_codec_layer_scale_follows_activation_device(variant, module_name):
+    """Partially offloaded LayerScale parameters must follow activations."""
+    import importlib
+
+    from moss_tts import native
+
+    native.codec_classes(native.VARIANTS[variant])
+    module = importlib.import_module(module_name)
+    layer = module.MossAudioTokenizerLayerScale(4)
+
+    class ProbeScale:
+        def __init__(self):
+            self.called = False
+
+        def to(self, activation):
+            self.called = True
+            return torch.ones(4, device=activation.device, dtype=activation.dtype)
+
+    probe = ProbeScale()
+    del layer._parameters["scale"]
+    layer.scale = probe
+    output = layer(torch.randn(2, 3, 4))
+    assert output.shape == (2, 3, 4)
+    assert probe.called
+
+
 def test_rotary_materialization_4x_rope_init_fn():
     """tf4.x-style rotary (rope_init_fn attr, no compute_default_rope_parameters)
     must get a recomputed inv_freq, not the historical zero-fill that left the

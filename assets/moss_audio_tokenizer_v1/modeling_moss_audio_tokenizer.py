@@ -228,10 +228,11 @@ class MossAudioTokenizerLayerScale(nn.Module):
         self.scale = nn.Parameter(torch.full((channels,), init, requires_grad=True, device=device, dtype=dtype))
 
     def forward(self, x: torch.Tensor):
+        scale = self.scale.to(x)
         if self.channel_last:
-            return self.scale * x
+            return scale * x
         else:
-            return self.scale[:, None] * x
+            return scale[:, None] * x
 
 
 def create_norm_fn(norm_type: str, dim: int, **kwargs) -> nn.Module:
@@ -1008,7 +1009,10 @@ class MossAudioTokenizerVectorQuantize(nn.Module):
 
         encodings = z_e.transpose(1, 2).reshape(-1, z_e.shape[1])
 
-        codebook_weight = self.codebook.weight
+        # Call Embedding.forward instead of reading .weight directly so
+        # ComfyUI can stream an offloaded codebook onto z_e.device.
+        codebook_ids = torch.arange(self.codebook_size, device=z_e.device)
+        codebook_weight = self.codebook(codebook_ids)
         dist = (
             encodings.pow(2).sum(1, keepdim=True)
             - 2 * encodings @ codebook_weight.float().t()
@@ -1063,7 +1067,8 @@ class MossAudioTokenizerLFQ(nn.Module):
         return z_q, indices, z_e
 
     def embed_code(self, embed_id: torch.Tensor) -> torch.Tensor:
-        return F.embedding(embed_id, self.codebook.weight)
+        # The embedding module may be Comfy-cast-aware under partial offload.
+        return self.codebook(embed_id)
 
     def decode_code_wo_out_proj(self, embed_id: torch.Tensor) -> torch.Tensor:
         return self.embed_code(embed_id).transpose(1, 2)
@@ -1076,7 +1081,8 @@ class MossAudioTokenizerLFQ(nn.Module):
     def decode_latents(self, latents: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Match training LFQ: L2-normalize then argmin squared distance."""
         encodings = latents.transpose(1, 2).reshape(-1, latents.shape[1]).float()
-        codebook = self.codebook.weight.float()
+        codebook_ids = torch.arange(self.codebook_size, device=latents.device)
+        codebook = self.codebook(codebook_ids).float()
 
         encodings = F.normalize(encodings)
         codebook = F.normalize(codebook)
