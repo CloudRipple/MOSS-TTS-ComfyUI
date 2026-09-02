@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 import torch
 
-from .loader import MossTTSBundle, resume_codec, resume_model
+from .loader import MossTTSBundle, ensure_mosstts_bundle, resume_codec, resume_model
 
 logger = logging.getLogger("ComfyUI-MOSS-TTS-v15")
 
@@ -120,8 +120,8 @@ def _generate_kwargs(bundle: MossTTSBundle, *, max_new_tokens: int, do_sample: b
         "audio_repetition_penalty": float(audio_repetition_penalty),
         "show_progress": False,
     }
-    if bundle.spec.key == "delay":
-        # Delay has no do_sample flag; temperature <= 0 means greedy.
+    if bundle.spec.asset_pkg == "moss_tts_delay":
+        # Delay family has no do_sample flag; temperature <= 0 means greedy.
         if not do_sample:
             base["text_temperature"] = 0.0
             base["audio_temperature"] = 0.0
@@ -133,9 +133,9 @@ def _generate_kwargs(bundle: MossTTSBundle, *, max_new_tokens: int, do_sample: b
 
 def _extract_waveform(bundle: MossTTSBundle, outputs) -> torch.Tensor:
     """processor.decode() -> waveform tensor [C, T] (或 None-safe 报错)."""
-    resume_codec(bundle)
+    bundle = resume_codec(bundle)
     decode_kwargs = {}
-    if bundle.spec.key == "local":
+    if bundle.spec.stereo:
         decode_kwargs["return_stereo"] = True
     messages = bundle.processor.decode(outputs, **decode_kwargs)
     for message in messages:
@@ -153,9 +153,9 @@ def _extract_waveform(bundle: MossTTSBundle, outputs) -> torch.Tensor:
 def _encode_reference(bundle: MossTTSBundle, audio: dict) -> torch.Tensor:
     """ComfyUI AUDIO -> codec codes [T, n_vq] following the variant's channel
     convention (local: mono duplicated to stereo; delay: down-mixed to mono)."""
-    resume_codec(bundle)
+    bundle = resume_codec(bundle)
     wav, sample_rate = comfy_audio_to_tensor(audio)
-    if bundle.spec.key == "local" and wav.shape[0] == 1:
+    if bundle.spec.stereo and wav.shape[0] == 1:
         wav = wav.repeat(2, 1)
     codes_list = bundle.processor.encode_audios_from_wav([wav], sample_rate)
     return codes_list[0]
@@ -163,7 +163,7 @@ def _encode_reference(bundle: MossTTSBundle, audio: dict) -> torch.Tensor:
 
 def _run_generate(bundle: MossTTSBundle, conversation, *, mode: str,
                   seed: int, progress_callback=None, **kwargs) -> torch.Tensor:
-    resume_model(bundle)
+    bundle = resume_model(bundle)
     seed_everything(seed)
     batch = bundle.processor([conversation], mode=mode)
     input_ids = batch["input_ids"].to(bundle.device)
@@ -186,6 +186,7 @@ def generate_speech(bundle: MossTTSBundle, *, text: str, language: str,
                     instruction: str, target_tokens: int, seed: int,
                     progress_callback=None, **gen) -> tuple[torch.Tensor, int]:
     """Reference-free TTS. Returns (waveform [C,T], tokens_generated)."""
+    bundle = ensure_mosstts_bundle(bundle)
     clean = _require_text(text)
     user = bundle.processor.build_user_message(
         **_build_user_kwargs(text=clean, language=language, instruction=instruction,
@@ -203,6 +204,7 @@ def voice_clone(bundle: MossTTSBundle, *, reference_audio: dict, text: str,
                 language: str, instruction: str, target_tokens: int, seed: int,
                 progress_callback=None, **gen) -> tuple[torch.Tensor, int]:
     """Zero-shot clone. Returns (waveform [C,T], tokens_generated)."""
+    bundle = ensure_mosstts_bundle(bundle)
     clean = _require_text(text)
     codes = _encode_reference(bundle, reference_audio)
     user = bundle.processor.build_user_message(
@@ -229,6 +231,7 @@ def continue_speech(bundle: MossTTSBundle, *, previous_audio: dict,
     prior audio, and the user message carries the full script
     (previous_text + new text). The 'tokens' hint is TOTAL (prefix + new).
     """
+    bundle = ensure_mosstts_bundle(bundle)
     new_text = _require_text(text)
     prev_text = (previous_text or "").strip()
     full_text = (prev_text + " " + new_text).strip() if prev_text else new_text

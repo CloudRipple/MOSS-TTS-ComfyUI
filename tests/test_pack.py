@@ -17,7 +17,7 @@ pack = moss_tts
 
 def test_node_registry_complete():
     assert set(pack.NODE_CLASS_MAPPINGS) == set(pack.NODE_DISPLAY_NAME_MAPPINGS)
-    assert len(pack.NODE_CLASS_MAPPINGS) == 5
+    assert len(pack.NODE_CLASS_MAPPINGS) == 6
     for cls in pack.NODE_CLASS_MAPPINGS.values():
         inputs = cls.INPUT_TYPES()
         assert "required" in inputs
@@ -28,9 +28,12 @@ def test_node_registry_complete():
 def test_variant_specs():
     from moss_tts.native import VARIANTS
 
-    local, delay = VARIANTS["local"], VARIANTS["delay"]
+    local, delay, voicegen = VARIANTS["local"], VARIANTS["delay"], VARIANTS["voicegen"]
     assert local.sample_rate == 48000 and local.stereo and local.n_vq == 12
     assert delay.sample_rate == 24000 and not delay.stereo and delay.n_vq == 32
+    assert voicegen.sample_rate == 24000 and not voicegen.stereo and voicegen.n_vq == 16
+    assert voicegen.asset_pkg == delay.asset_pkg  # same MossTTSDelay family
+    assert voicegen.repo_id == "OpenMOSS-Team/MOSS-VoiceGenerator"
     assert "tokenizer" in ("tokenizer",)  # smoke: nothing to check, kept honest
     assert local.repo_id != delay.repo_id and local.codec_repo_id != delay.codec_repo_id
 
@@ -87,6 +90,8 @@ def test_require_text_fail_fast():
 
 class _Spec:
     key = "local"
+    asset_pkg = "moss_tts_local"
+    stereo = True
 
 
 class _FakeBundle:
@@ -130,7 +135,7 @@ def test_generate_kwargs_local_vs_delay():
     local = runtime._generate_kwargs(bundle, **kwargs)
     assert local["do_sample"] is True and local["max_new_tokens"] == 100
 
-    bundle.spec.key = "delay"
+    bundle.spec.asset_pkg = "moss_tts_delay"
     delay = runtime._generate_kwargs(bundle, **{**kwargs, "do_sample": True})
     assert "do_sample" not in delay  # delay has no such arg
     delay_greedy = runtime._generate_kwargs(bundle, **{**kwargs, "do_sample": False})
@@ -236,6 +241,36 @@ def test_load_installs_cache_invalidation_unload_hook(tmp_path, monkeypatch):
         loader.unload_mosstts_bundle(bundle)
 
 
+def test_stale_bundle_reactivates_with_original_options(monkeypatch):
+    from types import SimpleNamespace
+
+    from moss_tts import loader
+
+    stale = SimpleNamespace(
+        spec=SimpleNamespace(key="voicegen"),
+        model=None,
+        codec=None,
+        dtype_name="auto",
+        attn_implementation="sdpa",
+    )
+    fresh = object()
+    captured = {}
+
+    def fake_load(variant, **kwargs):
+        captured["variant"] = variant
+        captured.update(kwargs)
+        return fresh
+
+    monkeypatch.setattr(loader, "load_mosstts_bundle", fake_load)
+    assert loader.ensure_mosstts_bundle(stale) is fresh
+    assert captured == {
+        "variant": "voicegen",
+        "dtype_name": "auto",
+        "attention": "sdpa",
+        "download_if_missing": False,
+    }
+
+
 def test_comfy_castable_modules_forward_without_comfy():
     """Converted modules must keep working when comfy.ops is absent."""
     import moss_tts.native as native
@@ -282,6 +317,110 @@ def test_qwen_rmsnorm_is_comfy_castable(monkeypatch):
     assert torch.allclose(norm(x), expected.to(x.dtype), atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize(
+    ("variant", "module_name"),
+    (
+        ("delay", "_mossttsv15_moss_audio_tokenizer_v1.modeling_moss_audio_tokenizer"),
+        ("local", "_mossttsv15_moss_audio_tokenizer_v2.modeling_moss_audio_tokenizer"),
+    ),
+)
+def test_codec_lfq_routes_codebook_reads_through_embedding(variant, module_name):
+    """Decode and encode paths must not bypass Comfy's castable Embedding."""
+    import importlib
+
+    from moss_tts import native
+
+    native.codec_classes(native.VARIANTS[variant])
+    module = importlib.import_module(module_name)
+
+    class ProbeEmbedding(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.table = torch.nn.Parameter(torch.randn(8, 4))
+            self.calls = 0
+
+        @property
+        def weight(self):
+            raise AssertionError("codebook.weight bypasses Embedding.forward")
+
+        def forward(self, indices):
+            self.calls += 1
+            return torch.nn.functional.embedding(indices, self.table)
+
+    quantizer = module.MossAudioTokenizerLFQ(
+        input_dim=4, codebook_size=8, codebook_dim=4,
+    )
+    probe = ProbeEmbedding()
+    quantizer.codebook = probe
+
+    decoded = quantizer.embed_code(torch.tensor([[1, 2, 3]]))
+    assert decoded.shape == (1, 3, 4)
+
+    z_q, indices = quantizer.decode_latents(torch.randn(1, 4, 3))
+    assert z_q.shape == (1, 4, 3)
+    assert indices.shape == (1, 3)
+    assert probe.calls == 3
+
+
+def test_weight_normalized_conv_keeps_parametrization_and_gets_cast_forward(monkeypatch):
+    """Codec WNConv1d must stream weights without losing weight_norm."""
+    from moss_tts import compat
+    import moss_tts.native as native
+
+    conv = torch.nn.utils.parametrizations.weight_norm(torch.nn.Conv1d(4, 8, 1))
+    x = torch.randn(2, 4, 5)
+    expected = conv(x)
+    original_type = type(conv)
+
+    with monkeypatch.context() as patch:
+        original_try_import = compat._try_import
+        patch.setattr(
+            compat,
+            "_try_import",
+            lambda name: object() if name == "comfy.ops" else original_try_import(name),
+        )
+        native.convert_modules_for_comfy(conv)
+
+    assert type(conv) is original_type
+    assert torch.nn.utils.parametrize.is_parametrized(conv, "weight")
+    assert conv.comfy_cast_weights is True
+    assert conv.forward.__func__ is native._ComfyConv1d.forward
+    assert torch.allclose(conv(x), expected)
+
+
+@pytest.mark.parametrize(
+    ("variant", "module_name"),
+    (
+        ("delay", "_mossttsv15_moss_audio_tokenizer_v1.modeling_moss_audio_tokenizer"),
+        ("local", "_mossttsv15_moss_audio_tokenizer_v2.modeling_moss_audio_tokenizer"),
+    ),
+)
+def test_codec_layer_scale_follows_activation_device(variant, module_name):
+    """Partially offloaded LayerScale parameters must follow activations."""
+    import importlib
+
+    from moss_tts import native
+
+    native.codec_classes(native.VARIANTS[variant])
+    module = importlib.import_module(module_name)
+    layer = module.MossAudioTokenizerLayerScale(4)
+
+    class ProbeScale:
+        def __init__(self):
+            self.called = False
+
+        def to(self, activation):
+            self.called = True
+            return torch.ones(4, device=activation.device, dtype=activation.dtype)
+
+    probe = ProbeScale()
+    del layer._parameters["scale"]
+    layer.scale = probe
+    output = layer(torch.randn(2, 3, 4))
+    assert output.shape == (2, 3, 4)
+    assert probe.called
+
+
 def test_rotary_materialization_4x_rope_init_fn():
     """tf4.x-style rotary (rope_init_fn attr, no compute_default_rope_parameters)
     must get a recomputed inv_freq, not the historical zero-fill that left the
@@ -309,3 +448,35 @@ def test_rotary_materialization_4x_rope_init_fn():
     assert mod.inv_freq.device.type == "cpu"
     assert torch.all(mod.inv_freq != 0)
     assert mod.attention_scaling == 1.0
+
+
+def test_voice_design_node_guards():
+    import moss_tts.nodes as nodes
+
+    node = nodes.MossTTSV15VoiceDesign()
+    knobs = dict(
+        language="auto", instruction="", audio_temperature=1.5, audio_top_p=0.6,
+        audio_top_k=50, audio_repetition_penalty=1.1, text_temperature=1.0,
+        text_top_p=1.0, text_top_k=50, target_tokens=0, max_new_tokens=100,
+        do_sample=True, seed=42,
+    )
+    bundle = _FakeBundle()  # spec.key = "local"
+    with pytest.raises(ValueError, match="VoiceGenerator"):
+        node.run(bundle, "hi", **knobs)
+    bundle.spec.key = "voicegen"
+    with pytest.raises(ValueError, match="instruction"):
+        node.run(bundle, "hi", **knobs)
+
+
+def test_voicegen_uses_delay_kwargs_path():
+    import moss_tts.runtime as runtime
+
+    bundle = _FakeBundle()
+    bundle.spec.key = "voicegen"
+    bundle.spec.asset_pkg = "moss_tts_delay"
+    bundle.spec.stereo = False
+    kwargs = dict(max_new_tokens=100, do_sample=True, text_temperature=1.0,
+                  text_top_p=1.0, text_top_k=50, audio_temperature=1.5,
+                  audio_top_p=0.6, audio_top_k=50, audio_repetition_penalty=1.1)
+    out = runtime._generate_kwargs(bundle, **kwargs)
+    assert "do_sample" not in out  # delay-family generate() rejects extra kwargs
