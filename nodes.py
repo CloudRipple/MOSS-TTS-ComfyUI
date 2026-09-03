@@ -17,12 +17,15 @@ from .loader import (
     DTYPE_OPTIONS,
     bundle_generation,
     load_mosstts_bundle,
+    load_soundeffect_bundle,
+    sfx_bundle_generation,
 )
 from .native import DEFAULT_VARIANT, VARIANTS
 
 logger = logging.getLogger("ComfyUI-MOSS-TTS-v15")
 
 MODEL_TYPE = "MOSSTTS_V15_MODEL"
+SFX_MODEL_TYPE = "MOSS_SFX_V2_MODEL"
 
 _VARIANT_LABELS = [VARIANTS[k].label for k in VARIANTS]
 _LABEL_TO_KEY = {VARIANTS[k].label: k for k in VARIANTS}
@@ -303,6 +306,71 @@ class MossTTSV15EstimateTokens:
         return (int(math.ceil(seconds * 12.5)),)
 
 
+class MossTTSV15SoundEffectLoad:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "dtype": (DTYPE_OPTIONS, {"default": "auto", "tooltip": "auto = bf16 on CUDA, fp32 on CPU."}),
+                "download_if_missing": ("BOOLEAN", {"default": True,
+                                                    "tooltip": "从 $MOSS_TTS_MODELS_DIR / models/mosstts / HF cache 解析，缺失时才下载。"}),
+            }
+        }
+
+    RETURN_TYPES = (SFX_MODEL_TYPE,)
+    RETURN_NAMES = ("soundeffect_model",)
+    FUNCTION = "load_model"
+    CATEGORY = "MOSS-TTS v1.5"
+    DESCRIPTION = "加载 MOSS-SoundEffect-v2.0（DiT 1.3B + DAC，48 kHz mono，最长 30 秒）。"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return sfx_bundle_generation()
+
+    def load_model(self, dtype: str, download_if_missing: bool):
+        return (load_soundeffect_bundle(dtype_name=dtype,
+                                        download_if_missing=bool(download_if_missing)),)
+
+
+class MossTTSV15SoundEffectGenerate:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "soundeffect_model": (SFX_MODEL_TYPE, {}),
+                "prompt": ("STRING", {"multiline": True, "default": "Rain falling gently on leaves, occasional distant thunder.",
+                                      "tooltip": "音效描述，中英文均可；支持环境声/城市/动物/动作声等"}),
+                "negative_prompt": ("STRING", {"multiline": True, "default": "",
+                                               "tooltip": "不想要的内容（CFG 负提示词），一般留空"}),
+                "seconds": ("FLOAT", {"default": 10.0, "min": 0.5, "max": 30.0, "step": 0.1,
+                                      "tooltip": "时长（秒），上限 30；实际按最长 latent 生成后裁剪"}),
+                "steps": ("INT", {"default": 100, "min": 10, "max": 500, "step": 5,
+                                  "tooltip": "去噪步数；官方默认 100"}),
+                "cfg_scale": ("FLOAT", {"default": 4.0, "min": 1.0, "max": 15.0, "step": 0.1,
+                                        "tooltip": "CFG 引导强度；官方默认 4.0"}),
+                "sigma_shift": ("FLOAT", {"default": 5.0, "min": 1.0, "max": 20.0, "step": 0.1,
+                                          "tooltip": "flow-match shift；官方默认 5.0"}),
+                "seed": ("INT", {"default": 42, "min": 0, "max": 2**31 - 1}),
+            }
+        }
+
+    RETURN_TYPES = ("AUDIO",)
+    RETURN_NAMES = ("audio",)
+    FUNCTION = "generate"
+    CATEGORY = "MOSS-TTS v1.5"
+    DESCRIPTION = "文本生成音效/环境声（MOSS-SoundEffect-v2.0，48 kHz mono）。"
+
+    def generate(self, soundeffect_model, prompt, negative_prompt, seconds, steps,
+                 cfg_scale, sigma_shift, seed):
+        wav = runtime.sound_effect(
+            soundeffect_model, prompt=prompt, negative_prompt=negative_prompt,
+            seconds=seconds, steps=steps, cfg_scale=cfg_scale,
+            sigma_shift=sigma_shift, seed=seed,
+            progress_reporter=ProgressReporter(steps),
+        )
+        return (runtime.tensor_to_comfy_audio(wav, soundeffect_model.sample_rate),)
+
+
 def _is_cjk(text: str) -> bool:
     for ch in text[:200]:
         code = ord(ch)
@@ -319,6 +387,8 @@ NODE_CLASS_MAPPINGS = {
     "MossTTSV15_VoiceDesign": MossTTSV15VoiceDesign,
     "MossTTSV15_ContinueSpeech": MossTTSV15ContinueSpeech,
     "MossTTSV15_EstimateTokens": MossTTSV15EstimateTokens,
+    "MossTTSV15_SoundEffectLoad": MossTTSV15SoundEffectLoad,
+    "MossTTSV15_SoundEffectGenerate": MossTTSV15SoundEffectGenerate,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -328,4 +398,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MossTTSV15_VoiceDesign": "MOSS-TTS v1.5 Voice Design",
     "MossTTSV15_ContinueSpeech": "MOSS-TTS v1.5 Continue Speech",
     "MossTTSV15_EstimateTokens": "MOSS-TTS v1.5 Estimate Tokens",
+    "MossTTSV15_SoundEffectLoad": "MOSS-TTS v1.5 Sound Effect Load",
+    "MossTTSV15_SoundEffectGenerate": "MOSS-TTS v1.5 Sound Effect Generate",
 }

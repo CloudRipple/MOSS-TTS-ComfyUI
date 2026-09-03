@@ -293,3 +293,37 @@ def continue_speech(bundle: MossTTSBundle, *, previous_audio: dict,
 def _frames_of(bundle: MossTTSBundle, wav: torch.Tensor) -> int:
     seconds = wav.shape[-1] / float(bundle.spec.sample_rate)
     return int(round(seconds * bundle.spec.frames_per_second))
+
+
+# ---------------------------------------------------------------------------
+# MOSS-SoundEffect-v2.0 (diffusion pipeline, 48kHz mono, up to max_seconds)
+# ---------------------------------------------------------------------------
+
+def sound_effect(bundle, *, prompt: str, negative_prompt: str, seconds: float,
+                 steps: int, cfg_scale: float, sigma_shift: float, seed: int,
+                 progress_reporter=None) -> torch.Tensor:
+    """Run MOSS-SoundEffect-v2.0: prompt -> waveform [1, 1, T] at 48kHz."""
+    prompt = _require_text(prompt)
+    kwargs: dict[str, Any] = {}
+    if progress_reporter is not None:
+        # The vendored pipeline accepts a tqdm-style iterable wrapper.
+        def bar_cmd(iterable, _steps=steps):
+            progress_reporter(0, _steps)
+            for i, item in enumerate(iterable, start=1):
+                yield item
+                progress_reporter(i, _steps)
+        kwargs["progress_bar_cmd"] = bar_cmd
+    logger.info("[MOSS-TTS] sound-effect seconds=%.1f steps=%d cfg=%.2f shift=%.2f seed=%d",
+                seconds, steps, cfg_scale, sigma_shift, seed)
+    audio = bundle.pipe(
+        prompt,
+        seconds=float(seconds),
+        num_inference_steps=int(steps),
+        cfg_scale=float(cfg_scale),
+        sigma_shift=float(sigma_shift),
+        seed=int(seed),
+        negative_prompt=negative_prompt or "",
+        **kwargs,
+    )
+    wav = audio[0]  # [C, T], mono C=1
+    return wav

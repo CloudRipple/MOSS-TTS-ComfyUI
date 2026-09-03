@@ -216,7 +216,7 @@ def main() -> int:
     ap.add_argument("--variant", choices=["local", "delay", "voicegen"], required=True)
     ap.add_argument(
         "--mode",
-        choices=["speak", "clone", "continue", "voicedesign", "designclone"],
+        choices=["speak", "clone", "continue", "voicedesign", "designclone", "sfx"],
         required=True,
     )
     ap.add_argument("--ref", type=Path, help="reference wav (clone/continue)")
@@ -227,7 +227,21 @@ def main() -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.mode == "voicedesign":
+    if args.mode == "sfx":
+        prompt = {"prompt": {
+            "1": {"class_type": "MossTTSV15_SoundEffectLoad", "inputs": {
+                "dtype": "auto", "download_if_missing": True}},
+            "2": {"class_type": "MossTTSV15_SoundEffectGenerate", "inputs": {
+                "soundeffect_model": ["1", 0],
+                "prompt": "雷声隆隆，雨声淅沥。",
+                "negative_prompt": "", "seconds": 6.0, "steps": 100,
+                "cfg_scale": 4.0, "sigma_shift": 5.0, "seed": args.seed}},
+            "9": {"class_type": "SaveAudio", "inputs": {
+                "audio": ["2", 0], "filename_prefix": "e2e_sfx"}},
+        }}
+        result = run_prompt(args.server, prompt, "soundeffect/generate", timeout_s=3600)
+        names = result["saved"]
+    elif args.mode == "voicedesign":
         assert args.variant == "voicegen", "voicedesign mode requires --variant voicegen"
         result = run_prompt(args.server, prompt_voice_design(args.seed, args.max_new_tokens),
                             "voicegen/voicedesign")

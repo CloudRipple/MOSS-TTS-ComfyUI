@@ -2,7 +2,7 @@
 
 [English](README_en.md)
 
-支持 MOSS-TTS v1.5 两个变体 + MOSS-VoiceGenerator 声音设计模型的 ComfyUI 自定义节点：
+支持 MOSS-TTS v1.5 两个变体 + MOSS-VoiceGenerator 声音设计 + MOSS-SoundEffect-v2.0 音效生成的 ComfyUI 自定义节点：
 
 - **Local-Transformer**：Qwen3-**4B** 级主干 + nano-GPT2 局部变换器，配 MOSS-Audio-Tokenizer-v2，**48 kHz 立体声**，n_vq=12。（其他扩展 README 里流传的 "1.7B" 不准确——主干是 Qwen3-4B 形状，bf16 权重约 9.1GB。）
 - **Delay**：8B delay-pattern 模型，配 MOSS-Audio-Tokenizer（v1），**24 kHz**，n_vq=32。
@@ -42,6 +42,7 @@ python install.py   # 只装缺失的轻量依赖
 | Voice Design | 音色描述（instruction 必填）+ 文本直接发声（配 VoiceGenerator 使用）。 |
 | Continue Speech | 前缀续写；输出新段+拼好的完整音频+帧数（便于链式衔接）。 |
 | Estimate Tokens | 文本 → `target_tokens` 估算。 |
+| Sound Effect Load / Generate | 加载/运行 MOSS-SoundEffect-v2.0（DiT+flow matching）：文本描述生成环境声/音效，48 kHz mono，最长 30 秒，支持时长/步数/CFG/shift/seed 控制。 |
 
 生成节点都输出 `tokens_generated`（音频帧数，秒数 = 帧 / 12.5），供续写链精确传递前缀长度。
 
@@ -50,6 +51,7 @@ python install.py   # 只装缺失的轻量依赖
 - Local（4B）：bf16 约 12 GB。
 - Delay（8B）：bf16 约 22 GB。
 - VoiceGenerator（1.7B）：bf16 模型约 4 GB + codec（fp32）约 7 GB。
+- SoundEffect-v2.0：全套约 8 GB（DiT 1.3B bf16 + Qwen3-1.7B 文本编码器 + DAC）。
 
 克隆参考音频建议 5–15 秒；前缀越长，KV cache 越大。
 

@@ -4,7 +4,8 @@
 
 ComfyUI custom nodes for [OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5)
 [OpenMOSS-Team/MOSS-TTS-v1.5](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-v1.5), and
-[OpenMOSS-Team/MOSS-VoiceGenerator](https://huggingface.co/OpenMOSS-Team/MOSS-VoiceGenerator):
+[OpenMOSS-Team/MOSS-VoiceGenerator](https://huggingface.co/OpenMOSS-Team/MOSS-VoiceGenerator), and
+[OpenMOSS-Team/MOSS-SoundEffect-v2.0](https://huggingface.co/OpenMOSS-Team/MOSS-SoundEffect-v2.0):
 
 - **Local-Transformer** — Qwen3-**4B**-class backbone + nano-GPT2 local transformer, MOSS-Audio-Tokenizer-v2, **48 kHz stereo**, n_vq=12. (Note: the "1.7B" floating around in other packs' READMEs is wrong; the backbone config is Qwen3-4B-shaped, checkpoint ≈ 9.1 GB in bf16.)
 - **Delay** — 8B delay-pattern model, MOSS-Audio-Tokenizer (v1), **24 kHz**, n_vq=32.
@@ -47,6 +48,7 @@ and `download_if_missing` is on, they download from Hugging Face
 | MOSS-TTS v1.5 Voice Design | `instruction` holds the voice description (required); speaks it directly (use with VoiceGenerator). |
 | MOSS-TTS v1.5 Continue Speech | Prefix continuation: extend a clip in the same voice. Outputs both the new segment and the stitched full audio (+ exact frame counts for chaining). |
 | MOSS-TTS v1.5 Estimate Tokens | Text → `target_tokens` estimate for duration control. |
+| MOSS-TTS v1.5 Sound Effect Load / Generate | MOSS-SoundEffect-v2.0 (DiT + flow matching): text-described ambience/SFX, 48 kHz mono, up to 30 s; duration/steps/CFG/shift/seed controls. |
 
 All generator nodes output `tokens_generated` (audio frames; seconds = frames / 12.5) so continuation chains can hand exact prefix lengths forward.
 
@@ -55,6 +57,7 @@ All generator nodes output `tokens_generated` (audio frames; seconds = frames / 
 - Local (4B): ~12 GB bf16 active.
 - Delay (8B): ~22 GB bf16 active.
 - VoiceGenerator (1.7B): ~4 GB bf16 model + ~7 GB fp32 codec.
+- SoundEffect-v2.0: ~8 GB total (1.3B DiT bf16 + Qwen3-1.7B text encoder + DAC).
 
 Keep voice-clone references short (5–15 s); prefix/PKV memory grows linearly with prefix duration.
 

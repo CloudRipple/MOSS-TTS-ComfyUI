@@ -408,6 +408,10 @@ def _same_patcher(left: Any, right: Any) -> bool:
 
 def _on_comfy_unload(reason: str, model: Any = None) -> None:
     global _BUNDLE_GENERATION
+    # SoundEffect bundle: no patchers — sweep it on offload-everything (model
+    # is None) calls. Targeted unloads (model set) don't apply to it.
+    if "_SFX_BUNDLE" in globals() and _SFX_BUNDLE is not None and model is None:
+        unload_soundeffect_bundle(_SFX_BUNDLE, reason=reason)
     bundle = _ACTIVE_BUNDLE
     if bundle is None:
         return
@@ -423,3 +427,121 @@ def bundle_generation() -> int:
 
 def active_bundle() -> Optional[MossTTSBundle]:
     return _ACTIVE_BUNDLE
+
+
+# ---------------------------------------------------------------------------
+# MOSS-SoundEffect-v2.0 (diffusion pipeline; not a MossTTSDelay variant)
+# ---------------------------------------------------------------------------
+
+SFX_REPO_ID = "OpenMOSS-Team/MOSS-SoundEffect-v2.0"
+
+_SFX_BUNDLE: Optional["MossSoundEffectBundle"] = None
+_SFX_LOAD_KEY: Optional[tuple] = None
+_SFX_GENERATION = 0
+
+
+@dataclass
+class MossSoundEffectBundle:
+    repo_id: str
+    model_dir: Path
+    device: torch.device
+    torch_dtype: torch.dtype
+    dtype_name: str
+    pipe: Any = field(repr=False)
+
+    @property
+    def sample_rate(self) -> int:
+        return self.pipe.sample_rate
+
+    @property
+    def max_seconds(self) -> int:
+        return self.pipe.max_inference_seconds
+
+
+def _sfx_load_key(model_dir: Path, device: torch.device, dtype: torch.dtype) -> tuple:
+    stat_bits: list[Any] = []
+    for rel in ("model_index.json", "transformer/diffusion_pytorch_model.safetensors",
+                "text_encoder/model.safetensors.index.json", "vae/vae_128d_48k.pth"):
+        path = model_dir / rel
+        if path.is_file():
+            stat = path.stat()
+            stat_bits.extend([str(path), stat.st_size, stat.st_mtime_ns])
+    return (str(stat_bits), str(device), str(dtype))
+
+
+def load_soundeffect_bundle(
+    dtype_name: str = "auto",
+    download_if_missing: bool = True,
+) -> MossSoundEffectBundle:
+    """Load (or reuse) the MOSS-SoundEffect-v2.0 diffusers-style pipeline.
+
+    The pipeline handles its own device placement; we keep exactly one bundle
+    alive and let ComfyUI unload hooks drop it like the TTS bundle.
+    """
+    global _SFX_BUNDLE, _SFX_LOAD_KEY
+
+    model_dir = _resolve_dir_for(SFX_REPO_ID, download_if_missing)
+    device = compat.normalize_device(compat.get_torch_device())
+    dtype = resolve_dtype(dtype_name, device)
+
+    load_key = _sfx_load_key(model_dir, device, dtype)
+    if _SFX_BUNDLE is not None and _SFX_LOAD_KEY == load_key:
+        return _SFX_BUNDLE
+    if _SFX_BUNDLE is not None:
+        unload_soundeffect_bundle(_SFX_BUNDLE, reason="dtype/weights changed")
+
+    native._register_asset_package("moss_soundeffect_v2")
+    import importlib
+
+    pipeline_mod = importlib.import_module(
+        f"{native._SYNTHETIC_PREFIX}moss_soundeffect_v2.pipeline_moss_soundeffect"
+    )
+
+    logger.info("Loading %s from %s on %s dtype=%s", SFX_REPO_ID, model_dir, device, dtype)
+    pipe = pipeline_mod.MossSoundEffectPipeline.from_pretrained(
+        str(model_dir),
+        torch_dtype=dtype,
+        device=device,
+        local_files_only=True,
+    )
+    _SFX_BUNDLE = MossSoundEffectBundle(
+        repo_id=SFX_REPO_ID, model_dir=model_dir, device=device,
+        torch_dtype=dtype, dtype_name=dtype_name, pipe=pipe,
+    )
+    _SFX_LOAD_KEY = load_key
+    compat.install_unload_hook(_on_comfy_unload)
+    return _SFX_BUNDLE
+
+
+def unload_soundeffect_bundle(bundle: Optional[MossSoundEffectBundle], reason: str = "requested") -> None:
+    global _SFX_BUNDLE, _SFX_LOAD_KEY, _SFX_GENERATION
+    if bundle is None:
+        return
+    logger.info("Unloading MOSS-SoundEffect bundle (%s).", reason)
+    engine = getattr(bundle.pipe, "engine", None)
+    for module_name in ("dit", "vae", "text_encoder"):
+        module = getattr(engine, module_name, None)
+        if not isinstance(module, torch.nn.Module):
+            continue
+        try:
+            if hasattr(module, "to_empty"):
+                module.to_empty(device=torch.device("meta"))
+            else:
+                module.to("cpu")
+        except Exception:
+            pass
+    bundle.pipe = None
+    gc.collect()
+    compat.soft_empty_cache()
+    _SFX_GENERATION += 1
+    if _SFX_BUNDLE is bundle:
+        _SFX_BUNDLE = None
+        _SFX_LOAD_KEY = None
+
+
+def sfx_bundle_generation() -> int:
+    return _SFX_GENERATION
+
+
+def active_sfx_bundle() -> Optional[MossSoundEffectBundle]:
+    return _SFX_BUNDLE
